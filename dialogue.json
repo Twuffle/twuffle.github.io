@@ -44,12 +44,13 @@
           "text": "Bribe with Magic Potion",
           "effects": { "royalty": 10, "populace": -5, "kingdom": -10, "power": 20, "suspicion": 25 }
         }
-      },
+      }
+    },
     "Noble": {
       "desc": "Demands Love Potion",
       "choices": {
         "A": {
-          "text": "Give Love Potioin",
+          "text": "Give Love Potion",
           "effects": { "royalty": 25, "populace": -15, "kingdom": -5, "power": 20, "suspicion": 25 }
         },
         "B": {
