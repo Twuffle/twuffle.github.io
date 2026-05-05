@@ -1,0 +1,35 @@
+{
+  "config": {
+    "days": 3,
+    "npcs_per_day": 5
+  },
+  "npcs": {
+    "Farmer": {
+      "desc": "Crops are failing. He begs for help.",
+      "choices": {
+        "A": {
+          "text": "Help him",
+          "effects": { "royalty": 5, "populace": 13, "kingdom": 0, "power": 0, "suspicion": -5 }
+        },
+        "B": {
+          "text": "Refuse him",
+          "effects": { "royalty": -5, "populace": 25, "kingdom": -5, "power": 0, "suspicion": 13 }
+        }
+      }
+    },
+    "Guard": {
+      "desc": "Suspects witchcraft in town.",
+      "choices": {
+        "A": {
+          "text": "Deny everything",
+          "effects": { "royalty": 13, "populace": -5, "kingdom": 13, "power": 0, "suspicion": -5 }
+        }
+      }
+    }
+  },
+  "schedule": [
+    ["Farmer", "Guard", "Farmer", "Farmer", "Guard"],
+    ["Guard", "Farmer", "Guard", "Guard", "Farmer"],
+    ["Farmer", "Guard", "Farmer", "Guard", "Farmer"]
+  ]
+}

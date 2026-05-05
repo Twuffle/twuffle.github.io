@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Wenching Hour - Economy Prototype</title>
+<style>
+  body { font-family: Arial; background:#1e1e1e; color:#eee; padding:20px; }
+  h1 { margin-bottom:5px; }
+  .stats, .npc, .end { margin-top:20px; padding:15px; background:#2a2a2a; border-radius:8px; }
+  button { margin:5px; padding:10px; cursor:pointer; }
+  .good { color:#4caf50; }
+  .bad { color:#f44336; }
+</style>
+</head>
+<body>
+
+<h1>The Wenching Hour</h1>
+<p>Day <span id="day">1</span> / <span id="maxDays"></span></p>
+
+<div class="stats">
+  <h3>Stats</h3>
+	Royalty: <span id="royalty"></span>
+	Populace: <span id="populace"></span>
+	Kingdom: <span id="kingdom"></span>
+	Power: <span id="power"></span>
+	Suspicion: <span id="suspicion"></span>
+</div>
+
+<div class="npc">
+  <h3 id="npcName">NPC</h3>
+  <p id="npcDesc">Description</p>
+  <div id="choices"></div>
+</div>
+
+<div class="end" id="endScreen" style="display:none;">
+  <h2>Trial Results</h2>
+  <p id="finalStats"></p>
+</div>
+
+<div id="warnings" style="
+  margin-top:20px;
+  background:#3a2a00;
+  padding:10px;
+  border-radius:6px;
+  color:#ffcc00;
+"></div>
+
+<script>
+//Load the dialogue json and related variables into the html
+let GAME_DATA = null;
+let NPCS = {};
+let SCHEDULE = [];
+
+// CONFIG
+const CONFIG = {
+  START: 50,
+  MIN: 0,
+  MAX: 100,
+  DAYS: 3,
+  NPCS_PER_DAY: 5
+};
+
+// STATE
+let stats = {
+  royalty: CONFIG.START,
+  populace: CONFIG.START,
+  kingdom: CONFIG.START,
+  power: 0,
+  suspicion: CONFIG.START
+};
+
+let currentStep = 0;
+let totalSteps = CONFIG.DAYS * CONFIG.NPCS_PER_DAY;
+
+// Load the game data
+async function loadGameData() {
+  const response = await fetch("dialogue.json");
+  GAME_DATA = await response.json();
+
+  NPCS = GAME_DATA.npcs;
+  SCHEDULE = GAME_DATA.schedule;
+
+  validateConfig();
+  
+  startGame();
+}
+
+//Start the game
+function startGame() {
+  document.getElementById("maxDays").innerText = CONFIG.DAYS;
+
+  updateStats();
+  nextStep();
+}
+
+//Warning system
+const warningsDiv = document.getElementById("warnings");
+let warningCount = 0;
+
+// Call this once at start
+function initWarnings() {
+  warningsDiv.innerHTML = "No Warnings";
+}
+
+// Call this whenever a warning occurs
+function showWarning(message) {
+  console.warn(message);
+
+  // Remove "No Warnings" text if it's the first warning
+  if (warningCount === 0) {
+    warningsDiv.innerHTML = "";
+  }
+
+  warningsDiv.innerHTML += `<div>⚠️ ${message}</div>`;
+  warningCount++;
+}
+
+// Helper to find NPC by name
+
+
+//Resets warnings upon launch and checks for config errors
+function validateConfig() {
+  // Reset warnings first
+  warningCount = 0;
+  initWarnings();
+
+  // Check total days
+  if (SCHEDULE.length !== CONFIG.DAYS) {
+    showWarning(
+      `SCHEDULE has ${SCHEDULE.length} days, but CONFIG.DAYS is ${CONFIG.DAYS}`
+    );
+  }
+
+  // Check NPC count per day + NPC existence
+  SCHEDULE.forEach((day, index) => {
+    if (day.length !== CONFIG.NPCS_PER_DAY) {
+      showWarning(
+        `Day ${index + 1} has ${day.length} NPCs, expected ${CONFIG.NPCS_PER_DAY}`
+      );
+    }
+	
+	//Check for invalid NPC names
+	day.forEach((npcName) => {
+	if (!NPCS[npcName]) {
+	showWarning(`Unknown NPC "${npcName}" in Day ${index + 1}`);
+	}
+	});
+  });
+}
+
+// clamp function
+function clamp(value) {
+  return Math.max(CONFIG.MIN, Math.min(CONFIG.MAX, value));
+}
+
+// apply choice
+function applyChoice(effects) {
+  for (let key in stats) {
+    stats[key] = clamp(stats[key] + (effects[key] || 0));
+  }
+}
+
+
+// update UI
+function updateStats() {
+  for (let key in stats) {
+    document.getElementById(key).innerText = stats[key];
+  }
+}
+
+//Formatting helpers
+function formatStat(label, value) {
+  let className = value > 0 ? "good" : "bad";
+  return `<span class="${className}">${label}:${value}</span>`;
+}
+
+function formatChoice(choice) {
+	  let parts = [];
+
+	  if (choice.royalty !== 0) parts.push(formatStat("R", choice.royalty));
+	  if (choice.populace !== 0) parts.push(formatStat("P", choice.populace));
+	  if (choice.kingdom !== 0) parts.push(formatStat("K", choice.kingdom));
+	  if (choice.power !== 0) parts.push(formatStat("Pow", choice.power));
+	  if (choice.suspicion !== 0) parts.push(formatStat("S", choice.suspicion));
+
+	  return parts.join(" ");
+	}
+
+// load next NPC
+function nextStep() {
+  if (currentStep >= totalSteps) {
+    endGame();
+    return;
+  }
+
+//Decides which NPC to summon from Array  
+let dayIndex = Math.floor(currentStep / CONFIG.NPCS_PER_DAY);
+let npcIndex = currentStep % CONFIG.NPCS_PER_DAY;
+
+let npcName = SCHEDULE[dayIndex][npcIndex];
+let npc = NPCS[npcName];
+
+// Safety check
+if (!npc) {
+  console.error("NPC not found:", npcName);
+  return;
+}
+
+  document.getElementById("npcName").innerText = npc.name;
+  document.getElementById("npcDesc").innerText = npc.desc;
+
+  let choicesDiv = document.getElementById("choices");
+  choicesDiv.innerHTML = "";
+
+  for (let key in npc.choices) {
+    let btn = document.createElement("button");
+
+    let c = npc.choices[key];
+    let effects = c.effects;
+
+    btn.innerHTML = `
+  <b>${key}</b> - ${c.text}<br>
+  ${formatChoice(c.effects)}
+`;
+      function formatStat(label, value) {
+	  let className = value > 0 ? "good" : "bad";
+	  return `<span class="${className}">${label}:${value}</span>`;
+	}
+
+    btn.onclick = () => {
+      applyChoice(effects);
+      updateStats();
+      currentStep++;
+      
+      let dayNumber = Math.min(
+		CONFIG.DAYS,
+		Math.floor(currentStep / CONFIG.NPCS_PER_DAY) + 1
+		);
+
+		document.getElementById("day").innerText = dayNumber;
+		
+      nextStep();
+    };
+
+    choicesDiv.appendChild(btn);
+  }
+}
+
+// end game
+function endGame() {
+  document.querySelector(".npc").style.display = "none";
+  document.getElementById("endScreen").style.display = "block";
+
+  document.getElementById("finalStats").innerHTML = `
+    Royalty: ${stats.royalty}<br>
+    Populace: ${stats.populace}<br>
+    Kingdom: ${stats.kingdom}<br>
+    Power: ${stats.power}<br>
+    Suspicion: ${stats.suspicion}
+  `;
+}
+
+// init
+
+// Set max days display from config
+document.getElementById("maxDays").innerText = CONFIG.DAYS;
+
+loadGameData();
+
+</script>
+
+</body>
+</html>
