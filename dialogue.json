@@ -8,12 +8,20 @@
       "desc": "Crops are failing. He begs for help.",
       "choices": {
         "A": {
-          "text": "Help him",
-          "effects": { "royalty": 5, "populace": 13, "kingdom": 0, "power": 0, "suspicion": -5 }
+          "text": "Give Magic Fertiliser",
+          "effects": { "royalty": 10, "populace": 20, "kingdom": 20, "power": 10, "suspicion": 20 }
         },
         "B": {
-          "text": "Refuse him",
-          "effects": { "royalty": -5, "populace": 25, "kingdom": -5, "power": 0, "suspicion": 13 }
+          "text": "Give Standard Fertiliser",
+          "effects": { "royalty": 0, "populace": 10, "kingdom": 10, "power": 0, "suspicion": 10 }
+        },
+        "C": {
+          "text": "Give Fake Fertiliser",
+          "effects": { "royalty": 0, "populace": -5, "kingdom": -10, "power": 0, "suspicion": -10 }
+        },
+        "D": {
+          "text": "Sorry, can't help you",
+          "effects": { "royalty": 0, "populace": -10, "kingdom": 0, "power": 0, "suspicion": 0 }
         }
       }
     },
@@ -21,15 +29,47 @@
       "desc": "Suspects witchcraft in town.",
       "choices": {
         "A": {
-          "text": "Deny everything",
-          "effects": { "royalty": 13, "populace": -5, "kingdom": 13, "power": 0, "suspicion": -5 }
+          "text": "Bribe the Guard",
+          "effects": { "royalty": -5, "populace": -5, "kingdom": -5, "power": 0, "suspicion": -10 }
+        },
+        "B": {
+          "text": "Drug them into believing you",
+          "effects": { "royalty": -10, "populace": 5, "kingdom": -5, "power": 10, "suspicion": 20 }
+        },
+        "C": {
+          "text": "Act Natural",
+          "effects": { "royalty": 0, "populace": 0, "kingdom": 0, "power": 0, "suspicion": -10 }
+        },
+        "D": {
+          "text": "Bribe with Magic Potion",
+          "effects": { "royalty": 10, "populace": -5, "kingdom": -10, "power": 20, "suspicion": 25 }
+        }
+      },
+    "Noble": {
+      "desc": "Demands Love Potion",
+      "choices": {
+        "A": {
+          "text": "Give Love Potioin",
+          "effects": { "royalty": 25, "populace": -15, "kingdom": -5, "power": 20, "suspicion": 25 }
+        },
+        "B": {
+          "text": "Give Rose Perfume",
+          "effects": { "royalty": -15, "populace": 0, "kingdom": -5, "power": 0, "suspicion": -10 }
+        },
+        "C": {
+          "text": "Knock them out",
+          "effects": { "royalty": -10, "populace": 10, "kingdom": 0, "power": 10, "suspicion": 15 }
+        },
+        "D": {
+          "text": "Refuse",
+          "effects": { "royalty": -10, "populace": 5, "kingdom": 0, "power": 0, "suspicion": 0 }
         }
       }
     }
   },
   "schedule": [
-    ["Farmer", "Guard", "Farmer", "Farmer", "Guard"],
-    ["Guard", "Farmer", "Guard", "Guard", "Farmer"],
-    ["Farmer", "Guard", "Farmer", "Guard", "Farmer"]
+    ["Farmer", "Guard", "Farmer", "Noble", "Guard"],
+    ["Noble", "Farmer", "Guard", "Guard", "Farmer"],
+    ["Guard", "Noble", "Farmer", "Noble", "Farmer"] 
   ]
 }
