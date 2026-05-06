@@ -6,6 +6,10 @@
   "npcs": {
     "Farmer": {
       "desc": "Crops are failing. He begs for help.",
+      "visual": {
+        "portrait": "images/truffle.png",
+        "color": "#6b8e23"
+      },
       "choices": {
         "A": {
           "text": "Give Magic Fertiliser",
@@ -27,6 +31,10 @@
     },
     "Guard": {
       "desc": "Suspects witchcraft in town.",
+      "visual": {
+        "portrait": "images/truffle.png",
+        "color": "#6b8e23"
+      },
       "choices": {
         "A": {
           "text": "Bribe the Guard",
@@ -48,6 +56,10 @@
     },
     "Noble": {
       "desc": "Demands Love Potion",
+      "visual": {
+        "portrait": "",
+        "color": "#6b8e23"
+      },
       "choices": {
         "A": {
           "text": "Give Love Potion",

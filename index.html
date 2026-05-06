@@ -26,9 +26,16 @@
 	Suspicion: <span id="suspicion"></span>
 </div>
 
-<div class="npc">
-  <h3 id="npcName">NPC</h3>
-  <p id="npcDesc">Description</p>
+<div class="npc" id="npcContainer">
+  <div style="display:flex; gap:15px; align-items:center;">
+    <img id="npcPortrait" src="" style="width:100px; height:100px; object-fit:cover; border-radius:8px;">
+    
+    <div>
+      <h3 id="npcName">NPC</h3>
+      <p id="npcDesc">Description</p>
+    </div>
+  </div>
+
   <div id="choices"></div>
 </div>
 
@@ -88,6 +95,12 @@ async function loadGameData() {
 //Start the game
 function startGame() {
   document.getElementById("maxDays").innerText = CONFIG.DAYS;
+
+  // Setup portrait fallback ONCE
+  const portrait = document.getElementById("npcPortrait");
+  portrait.onerror = () => {
+    portrait.src = "images/default.png"; //The default image to put there if image missing
+  };
 
   updateStats();
   nextStep();
@@ -199,6 +212,7 @@ let npcIndex = currentStep % CONFIG.NPCS_PER_DAY;
 
 let npcName = SCHEDULE[dayIndex][npcIndex];
 let npc = NPCS[npcName];
+let visual = npc.visual || {};
 
 // Safety check
 if (!npc) {
@@ -208,6 +222,12 @@ if (!npc) {
 
   document.getElementById("npcName").innerText = npcName;
   document.getElementById("npcDesc").innerText = npc.desc;
+  document.getElementById("npcPortrait").src = visual.portrait || "";
+
+  //Set color theme
+  let container = document.getElementById("npcContainer");
+  container.style.border = `2px solid ${visual.color || "#888"}`;
+  container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
 
   let choicesDiv = document.getElementById("choices");
   choicesDiv.innerHTML = "";
