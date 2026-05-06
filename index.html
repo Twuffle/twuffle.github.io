@@ -6,7 +6,7 @@
 <style>
   body { font-family: Arial; background:#1e1e1e; color:#eee; padding:20px; }
   h1 { margin-bottom:5px; }
-  .stats, .npc, .end { margin-top:20px; padding:15px; background:#2a2a2a; border-radius:8px; }
+  .stats, .npc, .end { margin-top:20px; padding:15px; background:#2a2a2a; border-radius:8px; opacity:0; transition: opacity 0.3s ease; }
   button { margin:5px; padding:10px; cursor:pointer; }
   .good { color:#4caf50; }
   .bad { color:#f44336; }
@@ -118,12 +118,36 @@ function startGame() {
     );
   };
 
-  const container = document.getElementById("npcContainer");
-
-  portrait.classList.add("fade-in");
+  // Fade in the stats container once at the start
+  document.querySelector(".stats").classList.add("fade-in");
 
   updateStats();
   nextStep();
+}
+
+//Helper to build the choice buttons
+function updateChoices(npc) {
+  let choicesDiv = document.getElementById("choices");
+  choicesDiv.innerHTML = "";
+
+  for (let key in npc.choices) {
+    let btn = document.createElement("button");
+    let c = npc.choices[key];
+    
+    btn.innerHTML = `<b>${key}</b> - ${c.text}<br>${formatChoice(c.effects)}`;
+
+    btn.onclick = () => {
+      if (isTransitioning) return;
+      applyChoice(c.effects);
+      updateStats();
+      currentStep++;
+      
+      let dayNumber = Math.min(CONFIG.DAYS, Math.floor(currentStep / CONFIG.NPCS_PER_DAY) + 1);
+      document.getElementById("day").innerText = dayNumber;
+      nextStep();
+    };
+    choicesDiv.appendChild(btn);
+  }
 }
 
 //Warning system
@@ -221,75 +245,54 @@ function formatChoice(choice) {
 
 // load next NPC
 function nextStep() {
-  //Prevents clicking the next dialogue by accident
   isTransitioning = true;
   if (currentStep >= totalSteps) {
     endGame();
     return;
   }
 
-//Decides which NPC to summon from Array  
-let dayIndex = Math.floor(currentStep / CONFIG.NPCS_PER_DAY);
-let npcIndex = currentStep % CONFIG.NPCS_PER_DAY;
+  let dayIndex = Math.floor(currentStep / CONFIG.NPCS_PER_DAY);
+  let npcIndex = currentStep % CONFIG.NPCS_PER_DAY;
+  let npcName = SCHEDULE[dayIndex][npcIndex];
+  let npc = NPCS[npcName];
+  let visual = npc.visual || {};
 
-let npcName = SCHEDULE[dayIndex][npcIndex];
-let npc = NPCS[npcName];
-let visual = npc.visual || {};
+  if (!npc) {
+    console.error("NPC not found:", npcName);
+    return;
+  }
 
-// Safety check
-if (!npc) {
-  console.error("NPC not found:", npcName);
-  return;
-}
-
- // document.getElementById("npcName").innerText = npcName;
- // document.getElementById("npcDesc").innerText = npc.desc;
-
+  const container = document.getElementById("npcContainer");
   const portrait = document.getElementById("npcPortrait");
 
-  // Fade out first
-  portrait.classList.remove("fade-in");
-  portrait.classList.add("fade-out");
-
-  // Wait for fade-out, then swap image
-  setTimeout(() => {
-    portrait.src = visual.portrait || "";
-
-    // Fade back in
-    portrait.classList.remove("fade-out");
-    portrait.classList.add("fade-in");
-  }, 300);
-
-  //Set color theme
-  const container = document.getElementById("npcContainer");
-
-  // STEP 1: Fade out
-  container.classList.remove("fade-in");
-  container.classList.add("fade-out");
-
-  setTimeout(() => {
-    // STEP 2: Update content AFTER fade out
+  const updateContent = () => {
+    portrait.src = visual.portrait || "images/default.png";
     document.getElementById("npcName").innerText = npcName;
     document.getElementById("npcDesc").innerText = npc.desc;
+    container.style.border = `2px solid ${visual.color || "#888"}`;
+    container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
+    
+    updateChoices(npc); // This now works because we defined it above!
+  };
 
-    // (also update portrait here if you're syncing them)
-
-    // STEP 3: Force reflow (this is the key fix)
-    void container.offsetWidth;
-
-    // STEP 4: Fade back in
-    container.classList.remove("fade-out");
+  if (currentStep === 0) {
+    updateContent();
+    void container.offsetWidth; 
     container.classList.add("fade-in");
+    isTransitioning = false;
+  } else {
+    container.classList.remove("fade-in");
+    container.classList.add("fade-out");
 
-    //Unlock button after fade-in completes
     setTimeout(() => {
-      isTransitioning = false;
+      updateContent();
+      void container.offsetWidth;
+      container.classList.remove("fade-out");
+      container.classList.add("fade-in");
+
+      setTimeout(() => { isTransitioning = false; }, 300);
     }, 300);
-
-  }, 300);
-
-  container.style.border = `2px solid ${visual.color || "#888"}`;
-  container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
+  }
 
   let choicesDiv = document.getElementById("choices");
   choicesDiv.innerHTML = "";
