@@ -336,9 +336,21 @@ function nextStep() {
 
 // end game
 function endGame() {
-  document.querySelector(".npc").style.display = "none";
-  document.getElementById("endScreen").style.display = "block";
+  const endScreen = document.getElementById("endScreen");
+  const npcContainer = document.getElementById("npcContainer");
 
+  // 1. Hide the NPC and stats containers
+  npcContainer.style.display = "none";
+  document.querySelector(".stats").style.display = "none";
+
+  // 2. Make the end screen exist in the layout
+  endScreen.style.display = "block";
+
+  // 3. Force a reflow and then fade it in
+  void endScreen.offsetWidth; 
+  endScreen.classList.add("fade-in");
+
+  // 4. Fill in the results
   document.getElementById("finalStats").innerHTML = `
     Royalty: ${stats.royalty}<br>
     Populace: ${stats.populace}<br>
@@ -347,8 +359,6 @@ function endGame() {
     Suspicion: ${stats.suspicion}
   `;
 }
-
-// init
 
 // Set max days display from config
 document.getElementById("maxDays").innerText = CONFIG.DAYS;
