@@ -63,7 +63,17 @@ Each NPC is a keyed object. Keys are the NPC's name (used as display name and as
     "color": "#hexcode"
   },
   "choices": {
-    "A": { "text": "Button label", "effects": { ... } },
+    "A": {
+      "text": "Button label",
+      "effects": { "power": -10, "suspicion": 15 },
+      "next": {
+        "desc": "NPC response line shown after this choice.",
+        "choices": {
+          "A": { "text": "Button label", "effects": { "royalty": 10, "populace": 20, "kingdom": 20, "power": 0, "suspicion": -5 } },
+          "B": { "text": "Button label", "effects": { "royalty": 5, "populace": 10, "kingdom": 15, "power": 0, "suspicion": 5 } }
+        }
+      }
+    },
     "B": { "text": "Button label", "effects": { ... } },
     "C": { "text": "Button label", "effects": { ... } },
     "D": { "text": "Button label", "effects": { ... } }
@@ -71,7 +81,12 @@ Each NPC is a keyed object. Keys are the NPC's name (used as display name and as
 }
 ```
 
-- Each NPC always has exactly **4 choices: A, B, C, D**
+- Root-level NPC choices are always exactly **4: A, B, C, D**
+- Branch node choices (`next.choices`) can use any keys and any count
+- `next` on a choice is optional — if present, the choice leads to a follow-up exchange instead of ending the encounter
+- `next.desc` is the NPC's response line; `next.choices` are the new options presented to the player
+- Branch nodes can nest to arbitrary depth — any choice at any level can have its own `next`
+- `effects` is optional on choices that have `next`; apply partial effects mid-conversation or omit entirely
 - `desc` is a one-to-two sentence hook describing the NPC's problem
 - `portrait` is a path relative to the project root to load an image for the NPC
 - `color` is a hex accent colour used in the NPC's UI treatment
@@ -117,9 +132,9 @@ Positive values increase the stat; negative values decrease it. The stat must al
 - Linear NPC encounters driven by the schedule
 - Four choices per NPC with stat effects
 - NPC portraits and accent colours
+- Individual conversation branching dialogue
 
 ### Planned (not yet implemented — check with me before building)
-- **Individual conversation branching dialogue** — choices leading to follow-up exchanges before the final effect
 - **Follow through branching dialogue** - NPC dialogue and dialogue options can change based on previous decisions or current stats
 - **Stat-gated options** — choices that are locked, hidden, or altered based on current stat values
 - **Conditional NPC text** — `desc` or choice labels that change based on player state
@@ -134,7 +149,7 @@ Positive values increase the stat; negative values decrease it. The stat must al
 - **JSON keys use camelCase for structure, lowercase for stat names** (`royalty`, not `Royalty`)
 - **NPC names are Title Case** and are used as both the display name and the schedule key
 - **Do not rename stat keys** — they are referenced by string throughout the JS
-- **Always validate** that any new NPC added to `npcs` has all five stat keys in every choice's `effects`, even if the value is `0`
+- **Always validate** that terminal choices (those without `next`) include all five stat keys in `effects`, even if the value is `0`. Intermediate choices (those with `next`) may omit `effects` entirely or include only the keys that change.
 - **Portrait images** go in `/images/` and are referenced from the root (e.g. `images/truffle.png`)
 - When adding new features to `index.html`, keep game logic functions grouped separately from rendering functions
 
