@@ -90,6 +90,8 @@ let stats = {
 let currentStep = 0;
 let totalSteps = CONFIG.DAYS * CONFIG.NPCS_PER_DAY;
 
+let isTransitioning = false;
+
 // Load the game data
 async function loadGameData() {
   const response = await fetch("dialogue.json");
@@ -111,7 +113,12 @@ function startGame() {
   const portrait = document.getElementById("npcPortrait");
   portrait.onerror = () => {
     portrait.src = "images/default.png"; //The default image to put there if image missing
+    showWarning(
+      `NPC Image is not loading! Automatically reset it to default`
+    );
   };
+
+  const container = document.getElementById("npcContainer");
 
   portrait.classList.add("fade-in");
 
@@ -214,6 +221,8 @@ function formatChoice(choice) {
 
 // load next NPC
 function nextStep() {
+  //Prevents clicking the next dialogue by accident
+  isTransitioning = true;
   if (currentStep >= totalSteps) {
     endGame();
     return;
@@ -233,8 +242,8 @@ if (!npc) {
   return;
 }
 
-  document.getElementById("npcName").innerText = npcName;
-  document.getElementById("npcDesc").innerText = npc.desc;
+ // document.getElementById("npcName").innerText = npcName;
+ // document.getElementById("npcDesc").innerText = npc.desc;
 
   const portrait = document.getElementById("npcPortrait");
 
@@ -252,7 +261,33 @@ if (!npc) {
   }, 300);
 
   //Set color theme
-  let container = document.getElementById("npcContainer");
+  const container = document.getElementById("npcContainer");
+
+  // STEP 1: Fade out
+  container.classList.remove("fade-in");
+  container.classList.add("fade-out");
+
+  setTimeout(() => {
+    // STEP 2: Update content AFTER fade out
+    document.getElementById("npcName").innerText = npcName;
+    document.getElementById("npcDesc").innerText = npc.desc;
+
+    // (also update portrait here if you're syncing them)
+
+    // STEP 3: Force reflow (this is the key fix)
+    void container.offsetWidth;
+
+    // STEP 4: Fade back in
+    container.classList.remove("fade-out");
+    container.classList.add("fade-in");
+
+    //Unlock button after fade-in completes
+    setTimeout(() => {
+      isTransitioning = false;
+    }, 300);
+
+  }, 300);
+
   container.style.border = `2px solid ${visual.color || "#888"}`;
   container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
 
@@ -275,6 +310,9 @@ if (!npc) {
 	}
 
     btn.onclick = () => {
+      //Prevents clicking fast and triggering multiple
+      if (isTransitioning) return;
+
       applyChoice(effects);
       updateStats();
       currentStep++;
