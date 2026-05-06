@@ -57,7 +57,7 @@
     "Noble": {
       "desc": "Demands Love Potion",
       "visual": {
-        "portrait": "",
+        "portrait": "images/truffle.png",
         "color": "#6b8e23"
       },
       "choices": {
