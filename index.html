@@ -255,12 +255,13 @@ function nextStep() {
   let npcIndex = currentStep % CONFIG.NPCS_PER_DAY;
   let npcName = SCHEDULE[dayIndex][npcIndex];
   let npc = NPCS[npcName];
-  let visual = npc.visual || {};
 
   if (!npc) {
     console.error("NPC not found:", npcName);
     return;
   }
+
+  let visual = npc.visual || {};
 
   const container = document.getElementById("npcContainer");
   const portrait = document.getElementById("npcPortrait");
@@ -272,7 +273,7 @@ function nextStep() {
     container.style.border = `2px solid ${visual.color || "#888"}`;
     container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
     
-    updateChoices(npc); // This now works because we defined it above!
+    updateChoices(npc);
   };
 
   if (currentStep === 0) {
@@ -294,44 +295,6 @@ function nextStep() {
     }, 300);
   }
 
-  let choicesDiv = document.getElementById("choices");
-  choicesDiv.innerHTML = "";
-
-  for (let key in npc.choices) {
-    let btn = document.createElement("button");
-
-    let c = npc.choices[key];
-    let effects = c.effects;
-
-    btn.innerHTML = `
-  <b>${key}</b> - ${c.text}<br>
-  ${formatChoice(c.effects)}
-`;
-      function formatStat(label, value) {
-	  let className = value > 0 ? "good" : "bad";
-	  return `<span class="${className}">${label}:${value}</span>`;
-	}
-
-    btn.onclick = () => {
-      //Prevents clicking fast and triggering multiple
-      if (isTransitioning) return;
-
-      applyChoice(effects);
-      updateStats();
-      currentStep++;
-      
-      let dayNumber = Math.min(
-		CONFIG.DAYS,
-		Math.floor(currentStep / CONFIG.NPCS_PER_DAY) + 1
-		);
-
-		document.getElementById("day").innerText = dayNumber;
-		
-      nextStep();
-    };
-
-    choicesDiv.appendChild(btn);
-  }
 }
 
 // end game
