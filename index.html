@@ -10,6 +10,17 @@
   button { margin:5px; padding:10px; cursor:pointer; }
   .good { color:#4caf50; }
   .bad { color:#f44336; }
+
+.fade-out {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.fade-in {
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
 </style>
 </head>
 <body>
@@ -101,6 +112,8 @@ function startGame() {
   portrait.onerror = () => {
     portrait.src = "images/default.png"; //The default image to put there if image missing
   };
+
+  portrait.classList.add("fade-in");
 
   updateStats();
   nextStep();
@@ -222,7 +235,21 @@ if (!npc) {
 
   document.getElementById("npcName").innerText = npcName;
   document.getElementById("npcDesc").innerText = npc.desc;
-  document.getElementById("npcPortrait").src = visual.portrait || "";
+
+  const portrait = document.getElementById("npcPortrait");
+
+  // Fade out first
+  portrait.classList.remove("fade-in");
+  portrait.classList.add("fade-out");
+
+  // Wait for fade-out, then swap image
+  setTimeout(() => {
+    portrait.src = visual.portrait || "";
+
+    // Fade back in
+    portrait.classList.remove("fade-out");
+    portrait.classList.add("fade-in");
+  }, 300);
 
   //Set color theme
   let container = document.getElementById("npcContainer");
