@@ -126,28 +126,51 @@ function startGame() {
 }
 
 //Helper to build the choice buttons
-function updateChoices(npc) {
+function updateChoices(choices, visual) {
   let choicesDiv = document.getElementById("choices");
   choicesDiv.innerHTML = "";
 
-  for (let key in npc.choices) {
+  for (let key in choices) {
+    let c = choices[key];
     let btn = document.createElement("button");
-    let c = npc.choices[key];
-    
-    btn.innerHTML = `<b>${key}</b> - ${c.text}<br>${formatChoice(c.effects)}`;
+
+    btn.innerHTML = `<b>${key}</b> - ${c.text}<br>${formatChoice(c.effects || {})}`;
 
     btn.onclick = () => {
       if (isTransitioning) return;
-      applyChoice(c.effects);
+      if (c.effects) applyChoice(c.effects);
       updateStats();
-      currentStep++;
-      
-      let dayNumber = Math.min(CONFIG.DAYS, Math.floor(currentStep / CONFIG.NPCS_PER_DAY) + 1);
-      document.getElementById("day").innerText = dayNumber;
-      nextStep();
+
+      if (c.next) {
+        advanceToBranchNode(c.next, visual);
+      } else {
+        currentStep++;
+        let dayNumber = Math.min(CONFIG.DAYS, Math.floor(currentStep / CONFIG.NPCS_PER_DAY) + 1);
+        document.getElementById("day").innerText = dayNumber;
+        nextStep();
+      }
     };
     choicesDiv.appendChild(btn);
   }
+}
+
+function advanceToBranchNode(node, visual) {
+  isTransitioning = true;
+  const container = document.getElementById("npcContainer");
+
+  container.classList.remove("fade-in");
+  container.classList.add("fade-out");
+
+  setTimeout(() => {
+    document.getElementById("npcDesc").innerText = node.desc;
+    updateChoices(node.choices, visual);
+
+    void container.offsetWidth;
+    container.classList.remove("fade-out");
+    container.classList.add("fade-in");
+
+    setTimeout(() => { isTransitioning = false; }, 300);
+  }, 300);
 }
 
 //Warning system
@@ -231,17 +254,15 @@ function formatStat(label, value) {
   return `<span class="${className}">${label}:${value}</span>`;
 }
 
-function formatChoice(choice) {
-	  let parts = [];
-
-	  if (choice.royalty !== 0) parts.push(formatStat("R", choice.royalty));
-	  if (choice.populace !== 0) parts.push(formatStat("P", choice.populace));
-	  if (choice.kingdom !== 0) parts.push(formatStat("K", choice.kingdom));
-	  if (choice.power !== 0) parts.push(formatStat("Pow", choice.power));
-	  if (choice.suspicion !== 0) parts.push(formatStat("S", choice.suspicion));
-
-	  return parts.join(" ");
-	}
+function formatChoice(effects) {
+  let parts = [];
+  if (effects.royalty) parts.push(formatStat("R", effects.royalty));
+  if (effects.populace) parts.push(formatStat("P", effects.populace));
+  if (effects.kingdom) parts.push(formatStat("K", effects.kingdom));
+  if (effects.power) parts.push(formatStat("Pow", effects.power));
+  if (effects.suspicion) parts.push(formatStat("S", effects.suspicion));
+  return parts.join(" ");
+}
 
 // load next NPC
 function nextStep() {
@@ -273,7 +294,7 @@ function nextStep() {
     container.style.border = `2px solid ${visual.color || "#888"}`;
     container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
     
-    updateChoices(npc);
+    updateChoices(npc.choices, visual);
   };
 
   if (currentStep === 0) {

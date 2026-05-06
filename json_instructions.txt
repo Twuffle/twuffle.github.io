@@ -1,0 +1,33 @@
+  JSON: each choice gets an optional next field
+
+  A choice with no next applies effects and ends the encounter. A choice with next applies any effects at that step,
+  then shows a new NPC line and new choices. It's recursive, so next nodes can themselves contain choices with further
+  next fields.
+
+  "Farmer": {
+    "desc": "Crops are failing. He begs for help.",
+    "visual": { ... },
+    "choices": {
+      "A": {
+        "text": "Give Magic Fertiliser",
+        "effects": { "royalty": 0, "populace": 5, ... },
+        "next": {
+          "desc": "His eyes go wide. 'How did you grow this so fast?'",
+          "choices": {
+            "A": {
+              "text": "Trade secret.",
+              "effects": { "suspicion": 10, ... }
+            },
+            "B": {
+              "text": "Hard work, nothing more.",
+              "effects": { "suspicion": -5, ... }
+            }
+          }
+        }
+      },
+      "B": {
+        "text": "Sorry, can't help you.",
+        "effects": { "populace": -10, ... }
+      }
+    }
+  }

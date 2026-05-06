@@ -13,7 +13,20 @@
       "choices": {
         "A": {
           "text": "Give Magic Fertiliser",
-          "effects": { "royalty": 10, "populace": 20, "kingdom": 20, "power": 10, "suspicion": 20 }
+          "effects": { "power": -10, "suspicion": 15 },
+          "next": {
+            "desc": "His crops surge overnight. He arrives again, wide-eyed. 'That's not natural. What are you?'",
+            "choices": {
+              "A": {
+                "text": "Just gifted with plants. Don't read into it.",
+                "effects": { "royalty": 10, "populace": 20, "kingdom": 20, "power": 0, "suspicion": -5 }
+              },
+              "B": {
+                "text": "What you don't know won't hurt you.",
+                "effects": { "royalty": 5, "populace": 10, "kingdom": 15, "power": 0, "suspicion": 5 }
+              }
+            }
+          }
         },
         "B": {
           "text": "Give Standard Fertiliser",
