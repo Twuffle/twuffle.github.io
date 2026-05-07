@@ -92,6 +92,9 @@ let totalSteps = CONFIG.DAYS * CONFIG.NPCS_PER_DAY;
 
 let isTransitioning = false;
 
+let choiceHistory = {};
+let currentNpcName = null;
+
 // Load the game data
 async function loadGameData() {
   const response = await fetch("dialogue.json");
@@ -126,19 +129,40 @@ function startGame() {
 }
 
 //Helper to build the choice buttons
-function updateChoices(choices, visual) {
+function updateChoices(choices, visual, recordChoice) {
   let choicesDiv = document.getElementById("choices");
   choicesDiv.innerHTML = "";
 
   for (let key in choices) {
     let c = choices[key];
+    let displayText = resolveVariantText(c.text);
+    let displayEffects = resolveVariantEffects(c.effects || {});
+
+    if (c.if && !evaluateCondition(c.if)) {
+      if (c.showLocked) {
+        let locked = document.createElement("button");
+        locked.disabled = true;
+        locked.style.opacity = "0.5";
+        locked.innerHTML = `<b>${key}</b> - ${displayText} \u{1F512}<br><small>${formatChoice(displayEffects)}</small><br><small>Requires: ${describeCondition(c.if)}</small>`;
+        choicesDiv.appendChild(locked);
+      }
+      continue;
+    }
+
     let btn = document.createElement("button");
 
-    btn.innerHTML = `<b>${key}</b> - ${c.text}<br>${formatChoice(c.effects || {})}`;
+    btn.innerHTML = `<b>${key}</b> - ${displayText}<br>${formatChoice(displayEffects)}`;
 
     btn.onclick = () => {
       if (isTransitioning) return;
-      if (c.effects) applyChoice(c.effects);
+
+      if (recordChoice && currentNpcName) {
+        if (!choiceHistory[currentNpcName]) choiceHistory[currentNpcName] = [];
+        choiceHistory[currentNpcName].push(key);
+      }
+
+      let effects = c.effects ? resolveVariantEffects(c.effects) : null;
+      if (effects) applyChoice(effects);
       updateStats();
 
       if (c.next) {
@@ -162,8 +186,8 @@ function advanceToBranchNode(node, visual) {
   container.classList.add("fade-out");
 
   setTimeout(() => {
-    document.getElementById("npcDesc").innerText = node.desc;
-    updateChoices(node.choices, visual);
+    document.getElementById("npcDesc").innerText = resolveVariantText(node.desc);
+    updateChoices(node.choices, visual, false);
 
     void container.offsetWidth;
     container.classList.remove("fade-out");
@@ -264,6 +288,146 @@ function formatChoice(effects) {
   return parts.join(" ");
 }
 
+// --- Condition system helpers ---
+
+function capitalize(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function computeVisitCount(npcName) {
+  let dayIndex = Math.floor(currentStep / CONFIG.NPCS_PER_DAY);
+  let npcIndex = currentStep % CONFIG.NPCS_PER_DAY;
+  let count = 0;
+  for (let d = 0; d <= dayIndex; d++) {
+    let day = SCHEDULE[d];
+    let end = d === dayIndex ? npcIndex : day.length;
+    for (let i = 0; i < end; i++) {
+      if (day[i] === npcName) count++;
+    }
+  }
+  return count;
+}
+
+function evaluateCondition(cond) {
+  if (!cond) return true;
+
+  if (cond.and) return cond.and.every(evaluateCondition);
+  if (cond.or) return cond.or.some(evaluateCondition);
+  if (cond.not) return !evaluateCondition(cond.not);
+
+  if (cond.stat !== undefined) {
+    let current = stats[cond.stat];
+    let op = cond.op || "==";
+    switch (op) {
+      case ">": return current > cond.value;
+      case "<": return current < cond.value;
+      case ">=": return current >= cond.value;
+      case "<=": return current <= cond.value;
+      case "==": return current === cond.value;
+      case "!=": return current !== cond.value;
+    }
+  }
+
+  if (cond.chose) {
+    let { npc, choice, last } = cond.chose;
+    let history = choiceHistory[npc];
+    if (!history || !history.length) return false;
+    if (last) return history[history.length - 1] === choice;
+    return history.includes(choice);
+  }
+
+  if (cond.visits !== undefined) {
+    let count = computeVisitCount(currentNpcName);
+    if (typeof cond.visits === "object") {
+      let { op, value } = cond.visits;
+      switch (op) {
+        case ">": return count > value;
+        case "<": return count < value;
+        case ">=": return count >= value;
+        case "<=": return count <= value;
+        case "==": return count === value;
+        case "!=": return count !== value;
+      }
+    }
+    return count === cond.visits;
+  }
+
+  if (cond.day !== undefined) {
+    let currentDay = Math.floor(currentStep / CONFIG.NPCS_PER_DAY) + 1;
+    if (typeof cond.day === "object") {
+      let { op, value } = cond.day;
+      switch (op) {
+        case ">": return currentDay > value;
+        case "<": return currentDay < value;
+        case ">=": return currentDay >= value;
+        case "<=": return currentDay <= value;
+        case "==": return currentDay === value;
+        case "!=": return currentDay !== value;
+      }
+    }
+    return currentDay === cond.day;
+  }
+
+  return false;
+}
+
+function resolveVariantText(variants) {
+  if (typeof variants === "string") return variants;
+  if (!Array.isArray(variants)) return variants;
+  for (let entry of variants) {
+    if (!entry.if || evaluateCondition(entry.if)) {
+      return entry.text;
+    }
+  }
+  return "";
+}
+
+function resolveVariantEffects(variants) {
+  if (!Array.isArray(variants)) return variants || {};
+  for (let entry of variants) {
+    if (!entry.if || evaluateCondition(entry.if)) {
+      return entry;
+    }
+  }
+  return {};
+}
+
+function describeCondition(cond) {
+  if (!cond) return "";
+
+  if (cond.and) return "(" + cond.and.map(describeCondition).join(" and ") + ")";
+  if (cond.or) return "(" + cond.or.map(describeCondition).join(" or ") + ")";
+  if (cond.not) return "Not (" + describeCondition(cond.not) + ")";
+
+  if (cond.stat !== undefined) {
+    let opLabels = { ">": "&gt;", "<": "&lt;", ">=": "≥", "<=": "≤", "==": "=", "!=": "≠" };
+    return capitalize(cond.stat) + " " + (opLabels[cond.op] || cond.op) + " " + cond.value;
+  }
+
+  if (cond.chose) {
+    let { npc, choice, last } = cond.chose;
+    return last ? "Last chose " + choice + " for " + npc : "Chose " + choice + " for " + npc;
+  }
+
+  if (cond.visits !== undefined) {
+    if (typeof cond.visits === "object") {
+      let opLabels = { ">": "&gt;", "<": "&lt;", ">=": "≥", "<=": "≤", "==": "=", "!=": "≠" };
+      return "Visit count " + (opLabels[cond.visits.op] || cond.visits.op) + " " + cond.visits.value;
+    }
+    return "Visit " + (cond.visits + 1);
+  }
+
+  if (cond.day !== undefined) {
+    if (typeof cond.day === "object") {
+      let opLabels = { ">": "&gt;", "<": "&lt;", ">=": "≥", "<=": "≤", "==": "=", "!=": "≠" };
+      return "Day " + (opLabels[cond.day.op] || cond.day.op) + " " + cond.day.value;
+    }
+    return "Day " + cond.day;
+  }
+
+  return "";
+}
+
 // load next NPC
 function nextStep() {
   isTransitioning = true;
@@ -276,6 +440,8 @@ function nextStep() {
   let npcIndex = currentStep % CONFIG.NPCS_PER_DAY;
   let npcName = SCHEDULE[dayIndex][npcIndex];
   let npc = NPCS[npcName];
+
+  currentNpcName = npcName;
 
   if (!npc) {
     console.error("NPC not found:", npcName);
@@ -290,11 +456,11 @@ function nextStep() {
   const updateContent = () => {
     portrait.src = visual.portrait || "images/default.png";
     document.getElementById("npcName").innerText = npcName;
-    document.getElementById("npcDesc").innerText = npc.desc;
+    document.getElementById("npcDesc").innerText = resolveVariantText(npc.desc);
     container.style.border = `2px solid ${visual.color || "#888"}`;
     container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
-    
-    updateChoices(npc.choices, visual);
+
+    updateChoices(npc.choices, visual, true);
   };
 
   if (currentStep === 0) {

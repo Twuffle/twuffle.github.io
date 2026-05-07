@@ -1,5 +1,11 @@
 # The Wenching Hour — Project Guide for Claude Code
 
+##Preferences
+
+- Unless asked, provide implementations without lengthy explanations
+
+---
+
 ## What This Game Is
 
 A dialogue-focused, choice-based game in the vein of Papers Please, Yes Your Grace, and Reigns. The player is a wench (implied to be a witch) who hears problems from NPCs over several days and chooses how to respond. Responses affect five stats that determine endings. The tone is dark, witty, and grounded in a medieval setting.
@@ -159,5 +165,3 @@ Positive values increase the stat; negative values decrease it. The stat must al
 
 - Medieval setting, dark and witty
 - NPC `desc` should be flavourful but brief — one or two punchy sentences
-- Choice labels should feel like real decisions, not just "good/neutral/bad" — moral ambiguity is intentional
-- The player is never told their stats directly in the dialogue; choices should feel grounded in the world, not gamey

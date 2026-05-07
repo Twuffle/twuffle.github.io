@@ -1,33 +1,60 @@
-  JSON: each choice gets an optional next field
+  Condition Predicates
 
-  A choice with no next applies effects and ends the encounter. A choice with next applies any effects at that step,
-  then shows a new NPC line and new choices. It's recursive, so next nodes can themselves contain choices with further
-  next fields.
+  // Stat threshold
+  { "stat": "suspicion", "op": ">", "value": 70 }
 
-  "Farmer": {
-    "desc": "Crops are failing. He begs for help.",
-    "visual": { ... },
-    "choices": {
-      "A": {
-        "text": "Give Magic Fertiliser",
-        "effects": { "royalty": 0, "populace": 5, ... },
-        "next": {
-          "desc": "His eyes go wide. 'How did you grow this so fast?'",
-          "choices": {
-            "A": {
-              "text": "Trade secret.",
-              "effects": { "suspicion": 10, ... }
-            },
-            "B": {
-              "text": "Hard work, nothing more.",
-              "effects": { "suspicion": -5, ... }
-            }
-          }
-        }
-      },
-      "B": {
-        "text": "Sorry, can't help you.",
-        "effects": { "populace": -10, ... }
-      }
-    }
+  // Prior choice (any visit)
+  { "chose": { "npc": "Farmer", "choice": "A" } }
+
+  // Prior choice (most recent visit only)
+  { "chose": { "npc": "Farmer", "choice": "A", "last": true } }
+
+  // Prior visits count (0 = first meeting)
+  { "visits": { "op": "==", "value": 0 } }
+  // Shorthand for equality:
+  { "visits": 2 }
+
+  // Day number (1-indexed)
+  { "day": { "op": ">=", "value": 2 } }
+  // Shorthand:
+  { "day": 3 }
+
+  // Combinators
+  { "and": [{ ... }, { ... }] }
+  { "or":  [{ ... }, { ... }] }
+  { "not": { ... } }
+
+  ---
+  How Conditions Attach
+
+  Text fields (desc, next.desc, choice text) become variant arrays — first match wins, last entry is default (no if):
+
+  "desc": [
+    { "if": { "chose": { "npc": "Farmer", "choice": "A" } }, "text": "You again! I took your advice..." },
+    { "if": { "stat": "suspicion", "op": ">", "value": 70 },     "text": "I've heard rumours about you..." },
+    { "text": "Evenin' to ye." }
+  ]
+
+  Choice gating — inline if on the choice object. Fails → hidden. Add "showLocked": true to grey it out instead:
+
+  "choices": {
+    "A": { "text": "Help him", "effects": { "royalty": 5, ... } },
+    "B": { "text": "Cast a spell", "if": { "stat": "power", "op": ">=", "value": 30 }, "effects": { "power": -10, ... },
+   "showLocked": true }
   }
+
+  Conditional effects — variant array on effects:
+
+  "effects": [
+    { "if": { "stat": "power", "op": ">", "value": 50 }, "royalty": 20, "suspicion": -10, "populace": 0, "kingdom": 0,
+  "power": 0 },
+    { "royalty": 10, "suspicion": -5, "populace": 0, "kingdom": 0, "power": 0 }
+  ]
+
+  ---
+  JS State Needed
+
+  let choiceHistory = {};  // { "Farmer": ["A", "B"], "Guard": ["C"] }
+
+  Appended to on every choice (root and branch). chose predicate checks the array. last: true checks only the last
+  element.

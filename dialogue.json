@@ -5,7 +5,11 @@
   },
   "npcs": {
     "Farmer": {
-      "desc": "Crops are failing. He begs for help.",
+      "desc": [
+        { "if": { "and": [{"visits": 1}, {"chose": {"npc": "Farmer", "choice": "A"}}] }, "text": "The farmer returns, eyes darting. 'Your magic saved my field, but now the village whispers... I need your help again.'" },
+        { "if": {"visits": 1}, "text": "The farmer shuffles back, cap twisting in his hands. 'That... didn't help much. The crops are still dying. Please, is there anything else?'" },
+        "Crops are failing. He begs for help."
+      ],
       "visual": {
         "portrait": "images/truffle.png",
         "color": "#6b8e23"
@@ -37,8 +41,10 @@
           "effects": { "royalty": 0, "populace": -5, "kingdom": -10, "power": 0, "suspicion": -10 }
         },
         "D": {
-          "text": "Sorry, can't help you",
-          "effects": { "royalty": 0, "populace": -10, "kingdom": 0, "power": 0, "suspicion": 0 }
+          "text": "Cast a growth spell",
+          "if": { "stat": "power", "op": ">=", "value": 30 },
+          "showLocked": true,
+          "effects": { "royalty": 0, "populace": 15, "kingdom": 10, "power": -20, "suspicion": 30 }
         }
       }
     },

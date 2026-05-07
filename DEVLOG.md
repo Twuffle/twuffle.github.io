@@ -2,6 +2,36 @@
 
 ---
 
+## Session 3 — 2026—05—06
+
+## Condition system added: Implemented the follow-through branching condition system.
+
+  New state:
+- choiceHistory — records root-level choices per NPC: { "Farmer": ["A", "B"], ... }
+- currentNpcName — tracks the current NPC name for visit counting
+
+  New functions (lines 291–429):
+- capitalize(str) — utility
+- computeVisitCount(npcName) — scans schedule up to current step to count prior visits
+- evaluateCondition(cond) — evaluates all predicate types (stat, chose, visits, day, and/or/not)
+- resolveVariantText(variants) — resolves string-or-array to final text string
+- resolveVariantEffects(variants) — resolves flat-or-array effects to final effects object
+- describeCondition(cond) — human-readable requirement text (e.g. "Power ≥ 30")
+
+  Modified functions:
+- updateChoices(choices, visual, recordChoice) — resolves variant text/effects, hides choices that fail if, shows
+  locked choices greyed with requirement text, records root-level choices to history
+- nextStep() — sets currentNpcName, resolves variant desc, passes recordChoice: true
+- advanceToBranchNode() — resolves variant desc, passes recordChoice: false
+
+  dialogue.json — Test content
+
+- Farmer desc is now a variant array: first meeting shows the original line; second meeting changes based on whether
+  player chose A (magic fertiliser) previously
+- Farmer choice D is now "Cast a growth spell", locked behind power ≥ 30 with showLocked: true
+  
+---
+
 ## Session 2 — 2026-05-06
 
 ### Bug fixes
@@ -23,19 +53,3 @@ Key details:
 Test case added to Farmer choice A in `dialogue.json` — one level deep, two terminal choices.
 
 ---
-
-## Next TODO
-
-### Follow-through branching
-NPC `desc` text and choice options can change based on prior player decisions or current stat values — scoped **across the whole game**, not just within a single encounter.
-
-Agreed design direction:
-- Needs a persistent record of choices made (probably a map of `npcName → [choiceKeys]` or similar)
-- JSON will need a way to express conditions (e.g. "if player chose A for Farmer on a previous visit" or "if suspicion > 70")
-- Discuss the condition schema before implementing — there are several valid approaches
-
-Other planned features (lower priority, all in CLAUDE.md):
-- Stat-gated options (locked/hidden/altered choices based on stat thresholds)
-- Multiple endings (outcome screens driven by final stat values)
-- Randomised scheduling
-- Improved visuals
