@@ -2,6 +2,26 @@
 
 ---
 
+## Session 4 — 2026-05-08
+
+### NPC variant system added
+
+NPCs can now define a `variants` array instead of top-level `desc`, `visual`, and `choices`. The engine picks the first variant whose `if` condition passes — or the first entry with no `if`, which acts as a fallback. Any condition type from the condition system (`stat`, `chose`, `visits`, `day`, `and`/`or`/`not`) is valid on a variant.
+
+New function:
+- `resolveNpcVariant(npc)` — iterates `variants`, evaluates each `if`, and merges the first matching variant onto the NPC object via `Object.assign`. Returns the NPC unchanged if no `variants` key is present (backwards-compatible).
+
+Modified:
+- `nextStep()` — calls `resolveNpcVariant(npc)` and uses the result for `visual`, `desc`, and `choices`.
+
+All existing conditional logic (`if` on choices, variant arrays on `desc`, `chose`/`visits`/`stat` conditions) works inside variants unchanged.
+
+`dialogue.json` — Farmer converted to `variants`:
+- Variant 0: `"if": { "visits": 0 }` — matches first visit; plain desc, original four choices including locked growth spell (Power ≥ 30)
+- Variant 1: no `if` (fallback) — subsequent visits; conditional `desc` array checking `chose` A, different choice set with a harder locked spell (Power ≥ 50)
+
+---
+
 ## Session 3 — 2026—05—06
 
 ## Condition system added: Implemented the follow-through branching condition system.

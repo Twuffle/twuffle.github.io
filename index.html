@@ -308,6 +308,16 @@ function computeVisitCount(npcName) {
   return count;
 }
 
+function resolveNpcVariant(npc) {
+  if (!npc.variants) return npc;
+  for (let variant of npc.variants) {
+    if (!variant.if || evaluateCondition(variant.if)) {
+      return Object.assign({}, npc, variant);
+    }
+  }
+  return npc;
+}
+
 function evaluateCondition(cond) {
   if (!cond) return true;
 
@@ -448,7 +458,8 @@ function nextStep() {
     return;
   }
 
-  let visual = npc.visual || {};
+  let resolved = resolveNpcVariant(npc);
+  let visual = resolved.visual || {};
 
   const container = document.getElementById("npcContainer");
   const portrait = document.getElementById("npcPortrait");
@@ -456,11 +467,11 @@ function nextStep() {
   const updateContent = () => {
     portrait.src = visual.portrait || "images/default.png";
     document.getElementById("npcName").innerText = npcName;
-    document.getElementById("npcDesc").innerText = resolveVariantText(npc.desc);
+    document.getElementById("npcDesc").innerText = resolveVariantText(resolved.desc);
     container.style.border = `2px solid ${visual.color || "#888"}`;
     container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
 
-    updateChoices(npc.choices, visual, true);
+    updateChoices(resolved.choices, visual, true);
   };
 
   if (currentStep === 0) {

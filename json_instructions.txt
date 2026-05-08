@@ -27,6 +27,20 @@
   ---
   How Conditions Attach
 
+
+  Variants contains all aspects of an NPC besides its name. Used to swap between NPC variants such as different choices/visuals/dialogue for day 2.
+  First match wins, last entry is default (no if):
+
+  "variants": [
+  {
+    "if" {conditions here}
+    all npc variant content
+  }
+  {
+  repeat for variant 2
+  }
+  ]
+
   Text fields (desc, next.desc, choice text) become variant arrays — first match wins, last entry is default (no if):
 
   "desc": [
