@@ -64,6 +64,26 @@
 "></div>
 
 <script>
+// ---------- DOM Caching ----------
+const DOM = {
+  day: document.getElementById("day"),
+  maxDays: document.getElementById("maxDays"),
+  royalty: document.getElementById("royalty"),
+  populace: document.getElementById("populace"),
+  kingdom: document.getElementById("kingdom"),
+  power: document.getElementById("power"),
+  suspicion: document.getElementById("suspicion"),
+  npcContainer: document.getElementById("npcContainer"),
+  npcPortrait: document.getElementById("npcPortrait"),
+  npcName: document.getElementById("npcName"),
+  npcDesc: document.getElementById("npcDesc"),
+  choicesDiv: document.getElementById("choices"),
+  endScreen: document.getElementById("endScreen"),
+  finalStats: document.getElementById("finalStats"),
+  warningsDiv: document.getElementById("warnings"),
+  statsContainer: document.querySelector(".stats")
+};
+
 //Load the dialogue json and related variables into the html
 let GAME_DATA = null;
 let NPCS = {};
@@ -95,6 +115,8 @@ let isTransitioning = false;
 let choiceHistory = {};
 let currentNpcName = null;
 
+let warningCount = 0;
+
 // Load the game data
 async function loadGameData() {
   const response = await fetch("dialogue.json");
@@ -110,19 +132,18 @@ async function loadGameData() {
 
 //Start the game
 function startGame() {
-  document.getElementById("maxDays").innerText = CONFIG.DAYS;
+  DOM.maxDays.textContent = CONFIG.DAYS;
 
   // Setup portrait fallback ONCE
-  const portrait = document.getElementById("npcPortrait");
-  portrait.onerror = () => {
-    portrait.src = "images/default.png"; //The default image to put there if image missing
+  DOM.npcPortrait.onerror = () => {
+    DOM.npcPortrait.src = "images/default.png"; //The default image to put there if image missing
     showWarning(
       `NPC Image is not loading! Automatically reset it to default`
     );
   };
 
   // Fade in the stats container once at the start
-  document.querySelector(".stats").classList.add("fade-in");
+  DOM.statsContainer.classList.add("fade-in");
 
   updateStats();
   nextStep();
@@ -130,7 +151,7 @@ function startGame() {
 
 //Helper to build the choice buttons
 function updateChoices(choices, visual, recordChoice) {
-  let choicesDiv = document.getElementById("choices");
+  const choicesDiv = DOM.choicesDiv;
   choicesDiv.innerHTML = "";
 
   for (let key in choices) {
@@ -170,7 +191,7 @@ function updateChoices(choices, visual, recordChoice) {
       } else {
         currentStep++;
         let dayNumber = Math.min(CONFIG.DAYS, Math.floor(currentStep / CONFIG.NPCS_PER_DAY) + 1);
-        document.getElementById("day").innerText = dayNumber;
+        DOM.day.textContent = dayNumber;
         nextStep();
       }
     };
@@ -180,13 +201,13 @@ function updateChoices(choices, visual, recordChoice) {
 
 function advanceToBranchNode(node, visual) {
   isTransitioning = true;
-  const container = document.getElementById("npcContainer");
+  const container = DOM.npcContainer;
 
   container.classList.remove("fade-in");
   container.classList.add("fade-out");
 
   setTimeout(() => {
-    document.getElementById("npcDesc").innerText = resolveVariantText(node.desc);
+    DOM.npcDesc.textContent = resolveVariantText(node.desc);
     updateChoices(node.choices, visual, false);
 
     void container.offsetWidth;
@@ -197,13 +218,10 @@ function advanceToBranchNode(node, visual) {
   }, 300);
 }
 
-//Warning system
-const warningsDiv = document.getElementById("warnings");
-let warningCount = 0;
-
 // Call this once at start
 function initWarnings() {
-  warningsDiv.innerHTML = "No Warnings";
+  DOM.warningsDiv.textContent = "No Warnings";
+  warningCount = 0;
 }
 
 // Call this whenever a warning occurs
@@ -212,20 +230,17 @@ function showWarning(message) {
 
   // Remove "No Warnings" text if it's the first warning
   if (warningCount === 0) {
-    warningsDiv.innerHTML = "";
+    DOM.warningsDiv.textContent = "";
   }
 
-  warningsDiv.innerHTML += `<div>⚠️ ${message}</div>`;
+  const warnItem = document.createElement("div");
+  warnItem.textContent = "⚠️ " + message;
+  DOM.warningsDiv.appendChild(warnItem);
   warningCount++;
 }
 
-// Helper to find NPC by name
-
-
 //Resets warnings upon launch and checks for config errors
 function validateConfig() {
-  // Reset warnings first
-  warningCount = 0;
   initWarnings();
 
   // Check total days
@@ -264,12 +279,13 @@ function applyChoice(effects) {
   }
 }
 
-
 // update UI
 function updateStats() {
-  for (let key in stats) {
-    document.getElementById(key).innerText = stats[key];
-  }
+  DOM.royalty.textContent = stats.royalty;
+  DOM.populace.textContent = stats.populace;
+  DOM.kingdom.textContent = stats.kingdom;
+  DOM.power.textContent = stats.power;
+  DOM.suspicion.textContent = stats.suspicion;
 }
 
 //Formatting helpers
@@ -461,13 +477,13 @@ function nextStep() {
   let resolved = resolveNpcVariant(npc);
   let visual = resolved.visual || {};
 
-  const container = document.getElementById("npcContainer");
-  const portrait = document.getElementById("npcPortrait");
+  const container = DOM.npcContainer;
+  const portrait = DOM.npcPortrait;
 
   const updateContent = () => {
     portrait.src = visual.portrait || "images/default.png";
-    document.getElementById("npcName").innerText = npcName;
-    document.getElementById("npcDesc").innerText = resolveVariantText(resolved.desc);
+    DOM.npcName.textContent = npcName;
+    DOM.npcDesc.textContent = resolveVariantText(resolved.desc);
     container.style.border = `2px solid ${visual.color || "#888"}`;
     container.style.background = visual.color ? visual.color + "22" : "#2a2a2a";
 
@@ -492,17 +508,17 @@ function nextStep() {
       setTimeout(() => { isTransitioning = false; }, 300);
     }, 300);
   }
-
 }
 
 // end game
 function endGame() {
-  const endScreen = document.getElementById("endScreen");
-  const npcContainer = document.getElementById("npcContainer");
+  const endScreen = DOM.endScreen;
+  const npcContainer = DOM.npcContainer;
+  const statsContainer = DOM.statsContainer;
 
   // 1. Hide the NPC and stats containers
   npcContainer.style.display = "none";
-  document.querySelector(".stats").style.display = "none";
+  statsContainer.style.display = "none";
 
   // 2. Make the end screen exist in the layout
   endScreen.style.display = "block";
@@ -512,7 +528,7 @@ function endGame() {
   endScreen.classList.add("fade-in");
 
   // 4. Fill in the results
-  document.getElementById("finalStats").innerHTML = `
+  DOM.finalStats.innerHTML = `
     Royalty: ${stats.royalty}<br>
     Populace: ${stats.populace}<br>
     Kingdom: ${stats.kingdom}<br>
@@ -522,7 +538,7 @@ function endGame() {
 }
 
 // Set max days display from config
-document.getElementById("maxDays").innerText = CONFIG.DAYS;
+DOM.maxDays.textContent = CONFIG.DAYS;
 
 loadGameData();
 
