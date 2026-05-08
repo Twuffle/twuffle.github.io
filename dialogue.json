@@ -5,7 +5,20 @@
   },
   "npcs": {
     "Farmer": {
+<<<<<<< Updated upstream
       "desc": "Crops are failing. He begs for help.",
+=======
+      "desc": [
+        { "if": { "and": [{"visits": {"op":">=", "value": 1}}, {"chose": {"npc": "Farmer", "choice": "A"}}] }, "text": "The farmer returns, eyes darting. 'Your magic saved my field, but now the village whispers... I need your help again.'" },
+        { "if": {"visits": {"op": ">=", "value": 1}}, "text": "The farmer shuffles back, cap twisting in his hands. 'That... didn't help much. The crops are still dying. Please, is there anything else?'" },
+        { "if": {"visits": 0}, "text": "My crops are failing. Please help me!"},
+        {"text": "Default / if no other conditions met text"}
+      ],
+      "visual": {
+        "portrait": "images/truffle.png",
+        "color": "#6b8e23"
+      },
+>>>>>>> Stashed changes
       "choices": {
         "A": {
           "text": "Help him",
