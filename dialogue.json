@@ -7,67 +7,150 @@
     "Farmer": {
       "variants": [
         {
-          "if": { "visits": 0 },
+          "if": {
+            "visits": 0
+          },
           "desc": "My crops are failing. Please help me!",
-          "visual": { "portrait": "images/truffle.png", "color": "#6b8e23" },
+          "visual": {
+            "portrait": "images/truffle.png",
+            "color": "#6b8e23"
+          },
           "choices": {
             "A": {
               "text": "Give Magic Fertiliser",
-              "effects": { "power": -10, "suspicion": 15 },
+              "effects": {
+                "power": -10,
+                "suspicion": 15
+              },
               "next": {
                 "desc": "His crops surge overnight. He arrives again, wide-eyed. 'That's not natural. What are you?'",
                 "choices": {
                   "A": {
                     "text": "Just gifted with plants. Don't read into it.",
-                    "effects": { "royalty": 10, "populace": 20, "kingdom": 20, "power": 0, "suspicion": -5 }
+                    "effects": {
+                      "royalty": 10,
+                      "populace": 20,
+                      "kingdom": 20,
+                      "power": 0,
+                      "suspicion": -5
+                    }
                   },
                   "B": {
                     "text": "What you don't know won't hurt you.",
-                    "effects": { "royalty": 5, "populace": 10, "kingdom": 15, "power": 0, "suspicion": 5 }
+                    "effects": {
+                      "royalty": 5,
+                      "populace": 10,
+                      "kingdom": 15,
+                      "power": 0,
+                      "suspicion": 5
+                    }
                   }
                 }
               }
             },
             "B": {
               "text": "Give Standard Fertiliser",
-              "effects": { "royalty": 0, "populace": 10, "kingdom": 10, "power": 0, "suspicion": 10 }
+              "effects": {
+                "royalty": 0,
+                "populace": 10,
+                "kingdom": 10,
+                "power": 0,
+                "suspicion": 10
+              }
             },
             "C": {
               "text": "Give Fake Fertiliser",
-              "effects": { "royalty": 0, "populace": -5, "kingdom": -10, "power": 0, "suspicion": -10 }
+              "effects": {
+                "royalty": 0,
+                "populace": -5,
+                "kingdom": -10,
+                "power": 0,
+                "suspicion": -10
+              }
             },
             "D": {
               "text": "Cast a growth spell",
-              "if": { "stat": "power", "op": ">=", "value": 30 },
+              "if": {
+                "stat": "power",
+                "op": ">=",
+                "value": 30
+              },
               "showLocked": true,
-              "effects": { "royalty": 0, "populace": 15, "kingdom": 10, "power": -20, "suspicion": 30 }
+              "effects": {
+                "royalty": 0,
+                "populace": 15,
+                "kingdom": 10,
+                "power": -20,
+                "suspicion": 30
+              }
             }
           }
         },
         {
           "desc": [
-            { "if": { "chose": { "npc": "Farmer", "choice": "A" } }, "text": "The farmer returns, eyes darting. 'Your magic saved my field, but now the village whispers... I need your help again.'" },
-            { "text": "The farmer shuffles back, cap twisting in his hands. 'That... didn't help much. The crops are still dying. Please, is there anything else?'" }
+            {
+              "if": {
+                "chose": {
+                  "npc": "Farmer",
+                  "choice": "A"
+                }
+              },
+              "text": "The farmer returns, eyes darting. 'Your magic saved my field, but now the village whispers... I need your help again.'"
+            },
+            {
+              "text": "The farmer shuffles back, cap twisting in his hands. 'That... didn't help much. The crops are still dying. Please, is there anything else?'"
+            }
           ],
-          "visual": { "portrait": "images/truffle.png", "color": "#8B4513" },
+          "visual": {
+            "portrait": "images/truffle.png",
+            "color": "#8B4513"
+          },
           "choices": {
             "A": {
               "text": "Give more of the same",
-              "effects": { "royalty": 0, "populace": 5, "kingdom": 5, "power": -5, "suspicion": 10 }
+              "effects": {
+                "royalty": 0,
+                "populace": 5,
+                "kingdom": 5,
+                "power": -5,
+                "suspicion": 10
+              }
             },
             "B": {
               "text": "Refer him to the herbalist",
-              "effects": { "royalty": 0, "populace": 5, "kingdom": 10, "power": 0, "suspicion": -5 }
+              "effects": {
+                "royalty": 0,
+                "populace": 5,
+                "kingdom": 10,
+                "power": 0,
+                "suspicion": -5
+              }
             },
             "C": {
               "text": "Turn him away",
-              "effects": { "royalty": 0, "populace": -10, "kingdom": -5, "power": 0, "suspicion": -10 }
+              "effects": {
+                "royalty": 0,
+                "populace": -10,
+                "kingdom": -5,
+                "power": 0,
+                "suspicion": -10
+              }
             },
             "D": {
               "text": "Cast a stronger spell",
-              "if": { "stat": "power", "op": ">=", "value": 50 },
+              "if": {
+                "stat": "power",
+                "op": ">=",
+                "value": 50
+              },
               "showLocked": true,
-              "effects": { "royalty": 0, "populace": 20, "kingdom": 15, "power": -30, "suspicion": 40 }
+              "effects": {
+                "royalty": 0,
+                "populace": 20,
+                "kingdom": 15,
+                "power": -30,
+                "suspicion": 40
+              }
             }
           }
         }
@@ -82,19 +165,43 @@
       "choices": {
         "A": {
           "text": "Bribe the Guard",
-          "effects": { "royalty": -5, "populace": -5, "kingdom": -5, "power": 0, "suspicion": -10 }
+          "effects": {
+            "royalty": -5,
+            "populace": -5,
+            "kingdom": -5,
+            "power": 0,
+            "suspicion": -10
+          }
         },
         "B": {
           "text": "Drug them into believing you",
-          "effects": { "royalty": -10, "populace": 5, "kingdom": -5, "power": 10, "suspicion": 20 }
+          "effects": {
+            "royalty": -10,
+            "populace": 5,
+            "kingdom": -5,
+            "power": 10,
+            "suspicion": 20
+          }
         },
         "C": {
           "text": "Act Natural",
-          "effects": { "royalty": 0, "populace": 0, "kingdom": 0, "power": 0, "suspicion": -10 }
+          "effects": {
+            "royalty": 0,
+            "populace": 0,
+            "kingdom": 0,
+            "power": 0,
+            "suspicion": -10
+          }
         },
         "D": {
           "text": "Bribe with Magic Potion",
-          "effects": { "royalty": 10, "populace": -5, "kingdom": -10, "power": 20, "suspicion": 25 }
+          "effects": {
+            "royalty": 10,
+            "populace": -5,
+            "kingdom": -10,
+            "power": 20,
+            "suspicion": 25
+          }
         }
       }
     },
@@ -107,26 +214,211 @@
       "choices": {
         "A": {
           "text": "Give Love Potion",
-          "effects": { "royalty": 25, "populace": -15, "kingdom": -5, "power": 20, "suspicion": 25 }
+          "effects": {
+            "royalty": 25,
+            "populace": -15,
+            "kingdom": -5,
+            "power": 20,
+            "suspicion": 25
+          }
         },
         "B": {
           "text": "Give Rose Perfume",
-          "effects": { "royalty": -15, "populace": 0, "kingdom": -5, "power": 0, "suspicion": -10 }
+          "effects": {
+            "royalty": -15,
+            "populace": 0,
+            "kingdom": -5,
+            "power": 0,
+            "suspicion": -10
+          }
         },
         "C": {
           "text": "Knock them out",
-          "effects": { "royalty": -10, "populace": 10, "kingdom": 0, "power": 10, "suspicion": 15 }
+          "effects": {
+            "royalty": -10,
+            "populace": 10,
+            "kingdom": 0,
+            "power": 10,
+            "suspicion": 15
+          }
         },
         "D": {
           "text": "Refuse",
-          "effects": { "royalty": -10, "populace": 5, "kingdom": 0, "power": 0, "suspicion": 0 }
+          "effects": {
+            "royalty": -10,
+            "populace": 5,
+            "kingdom": 0,
+            "power": 0,
+            "suspicion": 0
+          }
         }
       }
+    },
+    "Beggar": {
+      "variants": [
+        {
+          "if": {
+            "visits": 0
+          },
+          "desc": "Please help me. I'm so hungry.",
+          "visual": {
+            "portrait": ""
+          },
+          "choices": {
+            "b1A1": {
+              "text": "Give him food",
+              "effects": {
+                "royalty": 0,
+                "populace": 10,
+                "kingdom": 0,
+                "power": 0,
+                "suspicion": 0
+              },
+              "next": {
+                "desc": "",
+                "choices": {
+                  "A": {
+                    "text": "Thank you! Oh thank you!",
+                    "effects": {
+                      "royalty": 0,
+                      "populace": 0,
+                      "kingdom": 0,
+                      "power": 0,
+                      "suspicion": 0
+                    }
+                  }
+                }
+              }
+            },
+            "b1B1": {
+              "text": "No fuk u",
+              "effects": {
+                "royalty": 0,
+                "populace": -10,
+                "kingdom": 0,
+                "power": 0,
+                "suspicion": 0
+              },
+              "next": {
+                "desc": "",
+                "choices": {
+                  "A": {
+                    "text": "Rot in hell",
+                    "effects": {
+                      "royalty": 0,
+                      "populace": 0,
+                      "kingdom": 0,
+                      "power": 0,
+                      "suspicion": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "and": [
+              {
+                "visits": {
+                  "op": ">=",
+                  "value": 1
+                }
+              },
+              {
+                "chose": {
+                  "npc": "Beggar",
+                  "choice": "b1A1",
+                  "last": false
+                }
+              }
+            ]
+          },
+          "desc": "Thank you so much for your help!",
+          "visual": {
+            "color": "#ff6666"
+          },
+          "choices": {
+            "A": {
+              "text": "Continue...",
+              "effects": {
+                "royalty": 0,
+                "populace": 5,
+                "kingdom": 0,
+                "power": 0,
+                "suspicion": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "and": [
+              {
+                "visits": {
+                  "op": ">=",
+                  "value": 1
+                }
+              },
+              {
+                "chose": {
+                  "npc": "Beggar",
+                  "choice": "b1B1",
+                  "last": false
+                }
+              }
+            ]
+          },
+          "desc": "My family staved because of you!",
+          "visual": {
+            "color": "#ff0000"
+          },
+          "choices": {
+            "A": {
+              "text": "Continue you heartless wench...",
+              "effects": {
+                "royalty": 0,
+                "populace": -5,
+                "kingdom": 0,
+                "power": 0,
+                "suspicion": 0
+              }
+            }
+          }
+        },
+        {
+          "desc": "",
+          "visual": {
+            "portrait": "images/default.png",
+            "color": "#8f0000"
+          },
+          "choices": {}
+        }
+      ]
     }
   },
   "schedule": [
-    ["Farmer", "Guard", "Farmer", "Noble", "Guard"],
-    ["Noble", "Farmer", "Guard", "Guard", "Farmer"],
-    ["Guard", "Noble", "Farmer", "Noble", "Farmer"] 
+    [
+      "Guard",
+      "Beggar",
+      "Farmer",
+      "Noble",
+      "Guard"
+    ],
+    [
+      "Beggar",
+      "Farmer",
+      "Noble",
+      "Guard",
+      "Farmer"
+    ],
+    [
+      "Guard",
+      "Noble",
+      "Farmer",
+      "Beggar",
+      "Farmer"
+    ]
   ]
 }

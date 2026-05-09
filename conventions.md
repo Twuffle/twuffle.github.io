@@ -12,19 +12,6 @@ A dialogue-focused, choice-based game in the vein of Papers Please, Yes Your Gra
 
 ---
 
-## File Structure
-
-```
-/
-├── index.html        # All game logic, rendering, and state management
-├── dialogue.json     # All game content: config, NPCs, and the daily schedule
-└── images/           # NPC portraits and any other visual assets
-```
-
-**There are no separate JS or CSS files — everything lives in index.html for now.** Do not split files without asking and receiving confirmation from the user.
-
----
-
 ## How the Game Loads
 
 `index.html` fetches `dialogue.json` asynchronously on startup:
@@ -87,6 +74,81 @@ Each NPC is a keyed object. Keys are the NPC's name (used as display name and as
 }
 ```
 
+### Condition Predicates
+```json
+// Stat threshold
+{ "stat": "suspicion", "op": ">", "value": 70 }
+
+// Prior choice (any visit)
+{ "chose": { "npc": "Farmer", "choice": "A" } }
+
+// Prior choice (most recent visit only)
+{ "chose": { "npc": "Farmer", "choice": "A", "last": true } }
+
+// Prior visits count (0 = first meeting)
+{ "visits": { "op": "==", "value": 0 } }
+// Shorthand for equality:
+{ "visits": 2 }
+
+// Day number (1-indexed)
+{ "day": { "op": ">=", "value": 2 } }
+// Shorthand:
+{ "day": 3 }
+
+// Combinators
+{ "and": [{ ... }, { ... }] }
+{ "or":  [{ ... }, { ... }] }
+{ "not": { ... } }
+```
+
+### How Conditions Attach
+Variants contains all aspects of an NPC besides its name. Used to swap between NPC variants such as different choices/visuals/dialogue for day 2.
+First match wins, last entry is default (no if):
+
+```json
+"variants": [
+{
+  "if" {conditions here}
+  all npc variant content
+}
+{
+repeat for variant 2
+}
+]
+
+Text fields (desc, next.desc, choice text) become variant arrays — first match wins, last entry is default (no if):
+
+"desc": [
+  { "if": { "chose": { "npc": "Farmer", "choice": "A" } }, "text": "You again! I took your advice..." },
+  { "if": { "stat": "suspicion", "op": ">", "value": 70 },     "text": "I've heard rumours about you..." },
+  { "text": "Evenin' to ye." }
+]
+
+Choice gating — inline if on the choice object. Fails → hidden. Add "showLocked": true to grey it out instead:
+
+"choices": {
+  "A": { "text": "Help him", "effects": { "royalty": 5, ... } },
+  "B": { "text": "Cast a spell", "if": { "stat": "power", "op": ">=", "value": 30 }, "effects": { "power": -10, ... },
+  "showLocked": true }
+}
+
+Conditional effects — variant array on effects:
+
+"effects": [
+  { "if": { "stat": "power", "op": ">", "value": 50 }, "royalty": 20, "suspicion": -10, "populace": 0, "kingdom": 0,
+"power": 0 },
+  { "royalty": 10, "suspicion": -5, "populace": 0, "kingdom": 0, "power": 0 }
+]
+```
+
+---
+JS State Needed
+
+let choiceHistory = {};  // { "Farmer": ["A", "B"], "Guard": ["C"] }
+
+Appended to on every choice (root and branch). chose predicate checks the array. last: true checks only the last
+element.
+
 - Root-level NPC choices are always exactly **4: A, B, C, D**
 - Branch node choices (`next.choices`) can use any keys and any count
 - `next` on a choice is optional — if present, the choice leads to a follow-up exchange instead of ending the encounter
@@ -101,9 +163,9 @@ Each NPC is a keyed object. Keys are the NPC's name (used as display name and as
 A 2D array — one array per day, each containing NPC name strings. These are used to determine the order and days NPCs show up in:
 ```json
 "schedule": [
-  ["Farmer", "Guard", "Farmer", "Noble", "Guard"],
-  ["Noble", "Farmer", "Guard", "Guard", "Farmer"],
-  ["Guard", "Noble", "Farmer", "Noble", "Farmer"]
+["Farmer", "Guard", "Farmer", "Noble", "Guard"],
+["Noble", "Farmer", "Guard", "Guard", "Farmer"],
+["Guard", "Noble", "Farmer", "Noble", "Farmer"]
 ]
 ```
 - The schedule is **fixed, not randomised** (randomisation may come later)
@@ -122,7 +184,7 @@ Five stats, all clamped to **0–100**:
 | `populace` | 50 | Beloved by the people | Hated / driven out |
 | `kingdom` | 50 | Prosperous kingdom | Collapsed kingdom |
 | `power` | 0 | Full magical strength | No power |
-| `suspicion` | 50 | ⚠️ Fully exposed as a witch | Hidden / safe |
+| `suspicion` | 50 | Fully exposed as a witch | Hidden / safe |
 
 **Suspicion is inverted** — 100 is the worst outcome, 0 is the best. Keep this in mind when writing NPC effects and any UI indicators.
 
@@ -139,11 +201,12 @@ Positive values increase the stat; negative values decrease it. The stat must al
 - Four choices per NPC with stat effects
 - NPC portraits and accent colours
 - Individual conversation branching dialogue
+- Follow through branching dialogue -  NPC dialogue and dialogue options can change based on conditions
+- Stat-gated options - choices that are locked, hidden, or altered based on conditions
+- Conditional NPC text - text that changes based on conditions
+- dialogue editor in /dialogue-editor consisting of editor.html, editor.css, editor.js - Used for designers to edit and generate dialogue.json files without having to code
 
 ### Planned (not yet implemented — check with me before building)
-- **Follow through branching dialogue** - NPC dialogue and dialogue options can change based on previous decisions or current stats
-- **Stat-gated options** — choices that are locked, hidden, or altered based on current stat values
-- **Conditional NPC text** — `desc` or choice labels that change based on player state
 - **Multiple endings** — outcome screens driven by final stat values
 - **Randomised scheduling** — optional shuffling of the daily NPC order
 - **Improved visuals** — richer UI, animations, transitions
@@ -155,7 +218,6 @@ Positive values increase the stat; negative values decrease it. The stat must al
 - **JSON keys use camelCase for structure, lowercase for stat names** (`royalty`, not `Royalty`)
 - **NPC names are Title Case** and are used as both the display name and the schedule key
 - **Do not rename stat keys** — they are referenced by string throughout the JS
-- **Always validate** that terminal choices (those without `next`) include all five stat keys in `effects`, even if the value is `0`. Intermediate choices (those with `next`) may omit `effects` entirely or include only the keys that change.
 - **Portrait images** go in `/images/` and are referenced from the root (e.g. `images/truffle.png`)
 - When adding new features to `index.html`, keep game logic functions grouped separately from rendering functions
 
