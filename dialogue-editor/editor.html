@@ -2,78 +2,44 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Wenching Hour - Dialogue Editor</title>
+<title>Dialogue Editor — The Wenching Hour</title>
 <link rel="stylesheet" href="editor.css">
 </head>
 <body>
 
-<div id="app">
-
-  <!-- TOOLBAR -->
-  <div id="toolbar">
-    <span class="toolbar-title">🧙 Dialogue Editor</span>
-    <div class="toolbar-actions">
-      <button id="btn-load-server" title="Load dialogue.json from the server">📥 Load from Server</button>
-      <label class="btn" title="Load a local dialogue.json file">
-        📂 Load File
-        <input type="file" id="file-input" accept=".json" style="display:none;">
-      </label>
-      <button id="btn-save" title="Download dialogue.json">💾 Save JSON</button>
-      <button id="btn-validate" title="Run validation checks">✅ Validate</button>
-      <button id="btn-preview-toggle" title="Toggle JSON preview">👁 JSON Preview</button>
-    </div>
+<header class="app-header">
+  <h1>🍺 Dialogue Editor</h1>
+  <div class="header-actions">
+    <button class="btn" id="btnImport">📂 Import JSON</button>
+    <button class="btn" id="btnLoadDefault">📄 Load dialogue.json</button>
+    <button class="btn btn-primary" id="btnExport">💾 Export JSON</button>
+    <input type="file" id="fileInput" accept=".json" style="display:none">
   </div>
+</header>
 
-  <!-- DRAFT RESTORE BANNER -->
-  <div id="draft-banner" style="display:none;">
-    <span>📝 A saved draft was found in your browser.</span>
-    <button id="btn-restore-draft">Restore Draft</button>
-    <button id="btn-discard-draft">Discard</button>
-  </div>
-
-  <!-- MAIN LAYOUT -->
-  <div id="main-layout">
-
-    <!-- LEFT: NPC LIST -->
-    <div id="npc-list-panel">
-      <div class="panel-header">
-        <span>NPCs</span>
-        <button id="btn-add-npc" title="Add a new NPC">+ Add NPC</button>
-      </div>
-      <div id="npc-list"></div>
-      <hr>
-      <div class="panel-header">
-        <span>Views</span>
-      </div>
-      <button class="nav-btn" id="btn-nav-schedule">📅 Schedule</button>
-      <button class="nav-btn" id="btn-nav-config">⚙️ Config</button>
+<div class="app-body">
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-section">
+      <h3>General</h3>
+      <div class="sidebar-item" data-panel="config"><span class="icon">⚙️</span> Config</div>
+      <div class="sidebar-item" data-panel="schedule"><span class="icon">📅</span> Schedule</div>
     </div>
-
-    <!-- CENTRE: EDITOR PANE -->
-    <div id="editor-pane">
-      <div id="editor-content">
-        <div class="placeholder">Select an NPC, or open Schedule / Config.</div>
-      </div>
+    <div class="sidebar-section" id="npcSidebarSection">
+      <h3>NPCs</h3>
+      <div id="npcSidebarList"></div>
+      <div class="sidebar-add" id="addNpcBtn">+ Add NPC</div>
     </div>
+  </nav>
 
-    <!-- RIGHT: JSON PREVIEW -->
-    <div id="json-preview-panel" class="hidden">
-      <div class="panel-header"><span>JSON Preview</span></div>
-      <pre id="json-preview"></pre>
+  <main class="main-panel" id="mainPanel">
+    <div class="empty-state" id="welcomePanel">
+      <p>Load a dialogue.json file or start building from scratch.</p>
+      <p style="margin-top:12px; font-size:0.85rem; color:#666;">Use the sidebar to navigate between Config, Schedule, and NPCs.</p>
     </div>
-
-  </div>
-
-  <!-- BOTTOM: WARNINGS -->
-  <div id="warnings-panel">
-    <div class="panel-header" id="warnings-header" style="cursor:pointer;">
-      <span>⚠️ Warnings / Validation <span id="warning-count-badge"></span></span>
-      <span id="warnings-toggle-icon">▲</span>
-    </div>
-    <div id="warnings-body"></div>
-  </div>
-
+  </main>
 </div>
+
+<div class="toast" id="toast"></div>
 
 <script src="editor.js"></script>
 </body>

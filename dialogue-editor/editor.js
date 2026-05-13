@@ -1,1598 +1,1408 @@
-// ============================================================
-//  Wenching Hour – Dialogue Editor
-//  Single-file vanilla JS editor for dialogue.json
-// ============================================================
+/* ============================================================
+   The Wenching Hour — Dialogue Editor
+   ============================================================ */
 
-// ---------- Default / empty data ----------
-const EMPTY_DATA = () => ({
+// ─── Data Model ───
+let gameData = {
   config: { days: 3, npcs_per_day: 5 },
   npcs: {},
-  schedule: [
-    ["", "", "", "", ""],
-    ["", "", "", "", ""],
-    ["", "", "", "", ""]
-  ]
+  schedule: []
+};
+
+let activePanel = "welcome";
+let activeNpc = null;
+let activeVariantIndex = 0;
+
+// ─── DOM refs ───
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+const sidebar = $("#sidebar");
+const mainPanel = $("#mainPanel");
+const npcSidebarList = $("#npcSidebarList");
+const fileInput = $("#fileInput");
+const toastEl = $("#toast");
+
+// ─── Bootstrap ───
+document.addEventListener("DOMContentLoaded", () => {
+  bindHeaderButtons();
+  bindSidebarNav();
 });
 
-const STAT_KEYS = ["royalty", "populace", "kingdom", "power", "suspicion"];
-const OP_OPTIONS = [">", "<", ">=", "<=", "==", "!="];
-const COND_TYPES = ["stat", "chose", "visits", "day", "and", "or", "not"];
-
-// ---------- State ----------
-let DATA = EMPTY_DATA();
-let currentView = null;   // "npc:<name>" | "schedule" | "config"
-let activeVariantIndex = {};  // { npcName: variantTabIndex }
-
-// ---------- Auto-save ----------
-const DRAFT_KEY = "wenching_editor_draft";
-let autoSaveTimer = null;
-
-function scheduleSave() {
-  clearTimeout(autoSaveTimer);
-  autoSaveTimer = setTimeout(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(DATA));
-    refreshJsonPreview();
-  }, 500);
+// ─── Toast ───
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  setTimeout(() => toastEl.classList.remove("show"), 2000);
 }
 
-// ---------- DOM helpers ----------
-function el(tag, attrs = {}, ...children) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") e.className = v;
-    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
-    else e.setAttribute(k, v);
-  }
-  for (const c of children) {
-    if (c == null) continue;
-    e.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-  }
-  return e;
+// ─── Header Buttons ───
+function bindHeaderButtons() {
+  $("#btnImport").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", handleFileImport);
+  $("#btnLoadDefault").addEventListener("click", loadDefaultFile);
+  $("#btnExport").addEventListener("click", exportJson);
 }
 
-function clearEl(e) { e.innerHTML = ""; return e; }
-
-function makeCollapsible(headerEl, bodyEl, startCollapsed = false) {
-  let collapsed = startCollapsed;
-  const icon = el("span", { style: "margin-left:6px; color:#666;" }, collapsed ? "▶" : "▼");
-  headerEl.appendChild(icon);
-  if (collapsed) bodyEl.classList.add("collapsed");
-  headerEl.addEventListener("click", (e) => {
-    // Don't toggle if a button inside the header was clicked
-    if (e.target.tagName === "BUTTON" || e.target.tagName === "INPUT") return;
-    collapsed = !collapsed;
-    icon.textContent = collapsed ? "▶" : "▼";
-    bodyEl.classList.toggle("collapsed", collapsed);
-  });
-}
-
-// ---------- Deep clone ----------
-function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
-
-// ---------- NPC helpers ----------
-function getNpcNames() { return Object.keys(DATA.npcs); }
-
-function isVariantBased(npc) { return Array.isArray(npc.variants); }
-
-// ---------- Condition description (mirrors game logic) ----------
-function describeCondition(cond) {
-  if (!cond) return "(none)";
-  if (cond.and) return "(" + cond.and.map(describeCondition).join(" AND ") + ")";
-  if (cond.or)  return "(" + cond.or.map(describeCondition).join(" OR ")  + ")";
-  if (cond.not) return "NOT (" + describeCondition(cond.not) + ")";
-  if (cond.stat !== undefined) {
-    const opLabels = { ">": ">", "<": "<", ">=": "≥", "<=": "≤", "==": "=", "!=": "≠" };
-    return `${cond.stat} ${opLabels[cond.op] || cond.op} ${cond.value}`;
-  }
-  if (cond.chose) {
-    const { npc, choice, last } = cond.chose;
-    return last ? `Last chose ${choice} for ${npc}` : `Chose ${choice} for ${npc}`;
-  }
-  if (cond.visits !== undefined) {
-    if (typeof cond.visits === "object") {
-      return `Visits ${cond.visits.op} ${cond.visits.value}`;
-    }
-    return `Visit #${cond.visits + 1}`;
-  }
-  if (cond.day !== undefined) {
-    if (typeof cond.day === "object") {
-      return `Day ${cond.day.op} ${cond.day.value}`;
-    }
-    return `Day ${cond.day}`;
-  }
-  return JSON.stringify(cond);
-}
-
-// ============================================================
-//  CONDITION BUILDER
-// ============================================================
-
-function renderConditionBuilder(container, cond, onChange, depth = 0) {
-  clearEl(container);
-
-  if (!cond || typeof cond !== "object") cond = { stat: "royalty", op: ">", value: 0 };
-
-  // Determine current type
-  let type = "stat";
-  if (cond.and)  type = "and";
-  else if (cond.or)   type = "or";
-  else if (cond.not)  type = "not";
-  else if (cond.chose) type = "chose";
-  else if (cond.visits !== undefined) type = "visits";
-  else if (cond.day !== undefined) type = "day";
-  else if (cond.stat !== undefined) type = "stat";
-
-  const typeRow = el("div", { class: "form-row" });
-  const typeGroup = el("div", { class: "form-group shrink" });
-  typeGroup.appendChild(el("label", {}, "Condition type"));
-  const typeSel = el("select");
-  COND_TYPES.forEach(t => {
-    const o = el("option", { value: t }, t.toUpperCase());
-    if (t === type) o.selected = true;
-    typeSel.appendChild(o);
-  });
-  typeGroup.appendChild(typeSel);
-  typeRow.appendChild(typeGroup);
-
-  const fieldsDiv = el("div");
-  const previewDiv = el("div", { class: "condition-preview" });
-
-  function rebuild(newCond) {
-    cond = newCond;
-    previewDiv.textContent = describeCondition(cond);
-    onChange(cond);
-  }
-
-  function renderFields() {
-    clearEl(fieldsDiv);
-    switch (type) {
-      case "stat":   renderStatFields();       break;
-      case "chose":  renderChoseFields();      break;
-      case "visits": renderVisitsFields();     break;
-      case "day":    renderDayFields();        break;
-      case "and":    renderGroupFields("and"); break;
-      case "or":     renderGroupFields("or");  break;
-      case "not":    renderNotField();         break;
-    }
-    previewDiv.textContent = describeCondition(cond);
-  }
-
-  function renderStatFields() {
-    if (!cond.stat) cond = { stat: "royalty", op: ">", value: 0 };
-    const statSel = makeSelect(STAT_KEYS, cond.stat || "royalty", v => {
-      cond = { ...cond, stat: v };
-      rebuild(cond);
-    });
-    const opSel = makeSelect(OP_OPTIONS, cond.op || ">", v => {
-      cond = { ...cond, op: v };
-      rebuild(cond);
-    });
-    const valIn = makeNumberInput(cond.value ?? 0, v => {
-      cond = { ...cond, value: v };
-      rebuild(cond);
-    });
-    const row = el("div", { class: "form-row" });
-    appendFormGroup(row, "Stat", statSel);
-    appendFormGroup(row, "Op", opSel);
-    appendFormGroup(row, "Value", valIn);
-    fieldsDiv.appendChild(row);
-  }
-
-  function renderChoseFields() {
-    if (!cond.chose) cond = { chose: { npc: "", choice: "", last: false } };
-    const npcIn = makeTextInput(cond.chose.npc || "", v => {
-      cond.chose.npc = v; rebuild(cond);
-    }, "NPC name");
-    const choiceIn = makeTextInput(cond.chose.choice || "", v => {
-      cond.chose.choice = v; rebuild(cond);
-    }, "Choice key e.g. A");
-    const lastChk = makeCheckbox("Last visit only", cond.chose.last || false, v => {
-      cond.chose.last = v; rebuild(cond);
-    });
-    const row = el("div", { class: "form-row" });
-    appendFormGroup(row, "NPC", npcIn);
-    appendFormGroup(row, "Choice key", choiceIn);
-    fieldsDiv.appendChild(row);
-    fieldsDiv.appendChild(lastChk);
-  }
-
-  function renderVisitsFields() {
-    const isObj = typeof cond.visits === "object" && cond.visits !== null;
-    const currentOp  = isObj ? cond.visits.op    : "==";
-    const currentVal = isObj ? cond.visits.value  : (typeof cond.visits === "number" ? cond.visits : 0);
-
-    const useOpChk = makeCheckbox("Use operator (advanced)", isObj, v => {
-      cond = v ? { visits: { op: currentOp, value: currentVal } } : { visits: currentVal };
-      rebuild(cond);
-      renderFields();
-    });
-    fieldsDiv.appendChild(useOpChk);
-
-    if (isObj) {
-      const opSel = makeSelect(OP_OPTIONS, currentOp, v => {
-        cond.visits.op = v; rebuild(cond);
-      });
-      const valIn = makeNumberInput(currentVal, v => {
-        cond.visits.value = v; rebuild(cond);
-      });
-      const row = el("div", { class: "form-row" });
-      appendFormGroup(row, "Op", opSel);
-      appendFormGroup(row, "Visit count (0 = first)", valIn);
-      fieldsDiv.appendChild(row);
-    } else {
-      const valIn = makeNumberInput(currentVal, v => {
-        cond = { visits: v }; rebuild(cond);
-      });
-      const row = el("div", { class: "form-row" });
-      appendFormGroup(row, "Visit count (0 = first)", valIn);
-      fieldsDiv.appendChild(row);
-    }
-  }
-
-  function renderDayFields() {
-    const isObj = typeof cond.day === "object" && cond.day !== null;
-    const currentOp  = isObj ? cond.day.op    : "==";
-    const currentVal = isObj ? cond.day.value  : (typeof cond.day === "number" ? cond.day : 1);
-
-    const useOpChk = makeCheckbox("Use operator (advanced)", isObj, v => {
-      cond = v ? { day: { op: currentOp, value: currentVal } } : { day: currentVal };
-      rebuild(cond);
-      renderFields();
-    });
-    fieldsDiv.appendChild(useOpChk);
-
-    if (isObj) {
-      const opSel = makeSelect(OP_OPTIONS, currentOp, v => {
-        cond.day.op = v; rebuild(cond);
-      });
-      const valIn = makeNumberInput(currentVal, v => {
-        cond.day.value = v; rebuild(cond);
-      });
-      const row = el("div", { class: "form-row" });
-      appendFormGroup(row, "Op", opSel);
-      appendFormGroup(row, "Day (1-indexed)", valIn);
-      fieldsDiv.appendChild(row);
-    } else {
-      const valIn = makeNumberInput(currentVal, v => {
-        cond = { day: v }; rebuild(cond);
-      });
-      const row = el("div", { class: "form-row" });
-      appendFormGroup(row, "Day (1-indexed)", valIn);
-      fieldsDiv.appendChild(row);
-    }
-  }
-
-  function renderGroupFields(groupType) {
-    if (!Array.isArray(cond[groupType])) cond = { [groupType]: [] };
-    const list = cond[groupType];
-
-    list.forEach((subCond, i) => {
-      const subContainer = el("div", { class: "condition-group" });
-      const removeBtn = el("button", { class: "small danger" }, "✕ Remove");
-      removeBtn.addEventListener("click", () => {
-        list.splice(i, 1);
-        rebuild(cond);
-        renderFields();
-      });
-      subContainer.appendChild(removeBtn);
-      if (depth < 4) {
-        renderConditionBuilder(subContainer, subCond, newSub => {
-          list[i] = newSub;
-          rebuild(cond);
-        }, depth + 1);
-      } else {
-        subContainer.appendChild(el("div", {}, "(max nesting depth reached)"));
-      }
-      fieldsDiv.appendChild(subContainer);
-    });
-
-    const addBtn = el("button", { class: "small primary" }, `+ Add ${groupType.toUpperCase()} condition`);
-    addBtn.addEventListener("click", () => {
-      list.push({ stat: "royalty", op: ">", value: 0 });
-      rebuild(cond);
-      renderFields();
-    });
-    fieldsDiv.appendChild(addBtn);
-  }
-
-  function renderNotField() {
-    if (!cond.not) cond = { not: { stat: "royalty", op: ">", value: 0 } };
-    const subContainer = el("div", { class: "condition-group" });
-    if (depth < 4) {
-      renderConditionBuilder(subContainer, cond.not, newSub => {
-        cond.not = newSub;
-        rebuild(cond);
-      }, depth + 1);
-    } else {
-      subContainer.appendChild(el("div", {}, "(max nesting depth reached)"));
-    }
-    fieldsDiv.appendChild(subContainer);
-  }
-
-  typeSel.addEventListener("change", () => {
-    type = typeSel.value;
-    switch (type) {
-      case "stat":   cond = { stat: "royalty", op: ">", value: 0 };                    break;
-      case "chose":  cond = { chose: { npc: "", choice: "", last: false } };            break;
-      case "visits": cond = { visits: 0 };                                              break;
-      case "day":    cond = { day: 1 };                                                 break;
-      case "and":    cond = { and: [] };                                                break;
-      case "or":     cond = { or: [] };                                                 break;
-      case "not":    cond = { not: { stat: "royalty", op: ">", value: 0 } };           break;
-    }
-    rebuild(cond);
-    renderFields();
-  });
-
-  container.appendChild(typeRow);
-  container.appendChild(fieldsDiv);
-  container.appendChild(previewDiv);
-
-  renderFields();
-}
-
-// ============================================================
-//  EFFECTS EDITOR
-// ============================================================
-
-function renderEffectsEditor(container, effects, onChange) {
-  clearEl(container);
-
-  // Work from a live reference flag — re-check each time
-  let currentEffects = effects;
-
-  const modeToggle = el("label", { class: "inline-label" });
-  const modeChk = el("input", { type: "checkbox" });
-  modeChk.checked = Array.isArray(currentEffects);
-  modeToggle.appendChild(modeChk);
-  modeToggle.appendChild(document.createTextNode(" Conditional effects (variant array)"));
-  container.appendChild(modeToggle);
-
-  const body = el("div");
-  container.appendChild(body);
-
-  function renderFlat(eff) {
-    clearEl(body);
-    const grid = el("div", { class: "effects-grid" });
-    STAT_KEYS.forEach(key => {
-      const item = el("div", { class: "effect-item" });
-      item.appendChild(el("label", {}, key));
-      const inp = el("input", { type: "number", value: eff[key] ?? 0 });
-      inp.addEventListener("change", () => {
-        eff[key] = parseInt(inp.value) || 0;
-        onChange(eff);
-        scheduleSave();
-      });
-      item.appendChild(inp);
-      grid.appendChild(item);
-    });
-    body.appendChild(grid);
-  }
-
-  function renderVariantEffects(arr) {
-    clearEl(body);
-    arr.forEach((entry, i) => {
-      const card = el("div", { class: "section", style: "margin-bottom:8px;" });
-      const hdr = el("div", { class: "section-header" });
-      hdr.appendChild(el("span", {}, i === arr.length - 1 ? "Default effects" : `Variant ${i + 1}`));
-      const removeBtn = el("button", { class: "small danger" }, "✕");
-      removeBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        arr.splice(i, 1);
-        onChange(arr);
-        scheduleSave();
-        renderVariantEffects(arr);
-      });
-      hdr.appendChild(removeBtn);
-      const bdy = el("div", { class: "section-body" });
-      makeCollapsible(hdr, bdy, i > 0);
-      card.appendChild(hdr);
-      card.appendChild(bdy);
-
-      if (i < arr.length - 1) {
-        bdy.appendChild(el("label", {}, "Condition (when this effect applies):"));
-        const condContainer = el("div", { class: "condition-builder" });
-        bdy.appendChild(condContainer);
-        renderConditionBuilder(condContainer, entry.if || null, newCond => {
-          entry.if = newCond;
-          onChange(arr);
-          scheduleSave();
-        });
-      }
-
-      bdy.appendChild(el("label", {}, "Effects:"));
-      const grid = el("div", { class: "effects-grid" });
-      STAT_KEYS.forEach(key => {
-        const item = el("div", { class: "effect-item" });
-        item.appendChild(el("label", {}, key));
-        const inp = el("input", { type: "number", value: entry[key] ?? 0 });
-        inp.addEventListener("change", () => {
-          entry[key] = parseInt(inp.value) || 0;
-          onChange(arr);
-          scheduleSave();
-        });
-        item.appendChild(inp);
-        grid.appendChild(item);
-      });
-      bdy.appendChild(grid);
-      body.appendChild(card);
-    });
-
-    const addBtn = el("button", { class: "small primary" }, "+ Add variant");
-    addBtn.addEventListener("click", () => {
-      const newEntry = { if: { stat: "royalty", op: ">", value: 0 } };
-      STAT_KEYS.forEach(k => newEntry[k] = 0);
-      arr.splice(arr.length - 1, 0, newEntry);
-      onChange(arr);
-      scheduleSave();
-      renderVariantEffects(arr);
-    });
-    body.appendChild(addBtn);
-  }
-
-  modeChk.addEventListener("change", () => {
-    if (modeChk.checked) {
-      // Convert flat → variant array
-      const flat = Array.isArray(currentEffects) ? {} : (currentEffects || {});
-      const defaultEntry = {};
-      STAT_KEYS.forEach(k => defaultEntry[k] = flat[k] ?? 0);
-      currentEffects = [defaultEntry];
-      onChange(currentEffects);
-      scheduleSave();
-      renderVariantEffects(currentEffects);
-    } else {
-      // Convert variant array → flat (use first entry's values)
-      const flat = {};
-      STAT_KEYS.forEach(k => flat[k] = (Array.isArray(currentEffects) && currentEffects[0]) ? (currentEffects[0][k] ?? 0) : 0);
-      currentEffects = flat;
-      onChange(currentEffects);
-      scheduleSave();
-      renderFlat(currentEffects);
-    }
-  });
-
-  if (Array.isArray(currentEffects)) {
-    renderVariantEffects(currentEffects);
-  } else {
-    renderFlat(currentEffects || {});
+async function loadDefaultFile() {
+  try {
+    const resp = await fetch("../dialogue.json");
+    if (!resp.ok) throw new Error("Not found");
+    gameData = await resp.json();
+    onDataLoaded();
+    toast("Loaded dialogue.json");
+  } catch (e) {
+    toast("Could not load ../dialogue.json — " + e.message);
   }
 }
 
-// ============================================================
-//  TEXT FIELD EDITOR  (simple string OR variant array)
-// ============================================================
-
-function renderTextField(container, value, onChange, placeholder = "") {
-  clearEl(container);
-
-  let currentValue = value;
-
-  const modeToggle = el("label", { class: "inline-label" });
-  const modeChk = el("input", { type: "checkbox" });
-  modeChk.checked = Array.isArray(currentValue);
-  modeToggle.appendChild(modeChk);
-  modeToggle.appendChild(document.createTextNode(" Conditional text (variant array)"));
-  container.appendChild(modeToggle);
-
-  const body = el("div");
-  container.appendChild(body);
-
-  function renderSimple(str) {
-    clearEl(body);
-    const ta = el("textarea", { placeholder });
-    ta.value = str || "";
-    ta.addEventListener("input", () => {
-      currentValue = ta.value;
-      onChange(currentValue);
-      scheduleSave();
-    });
-    body.appendChild(ta);
-  }
-
-  function renderVariantText(arr) {
-    clearEl(body);
-    arr.forEach((entry, i) => {
-      const row = el("div", { class: "text-variant-row" });
-      const tvBody = el("div", { class: "tv-body" });
-
-      if (i < arr.length - 1) {
-        tvBody.appendChild(el("label", {}, `Condition for variant ${i + 1}:`));
-        const condContainer = el("div", { class: "condition-builder" });
-        tvBody.appendChild(condContainer);
-        renderConditionBuilder(condContainer, entry.if || null, newCond => {
-          entry.if = newCond;
-          onChange(arr);
-          scheduleSave();
-        });
-      } else {
-        tvBody.appendChild(el("label", {}, "Default text (no condition):"));
-      }
-
-      tvBody.appendChild(el("label", {}, "Text:"));
-      const ta = el("textarea", { placeholder: "Enter text..." });
-      ta.value = entry.text || "";
-      ta.addEventListener("input", () => {
-        entry.text = ta.value;
-        onChange(arr);
-        scheduleSave();
-      });
-      tvBody.appendChild(ta);
-
-      const removeBtn = el("button", { class: "small danger" }, "✕");
-      removeBtn.addEventListener("click", () => {
-        arr.splice(i, 1);
-        onChange(arr);
-        scheduleSave();
-        renderVariantText(arr);
-      });
-
-      row.appendChild(tvBody);
-      row.appendChild(removeBtn);
-      body.appendChild(row);
-    });
-
-    const addBtn = el("button", { class: "small primary" }, "+ Add variant");
-    addBtn.addEventListener("click", () => {
-      arr.splice(arr.length - 1, 0, { if: { stat: "royalty", op: ">", value: 0 }, text: "" });
-      onChange(arr);
-      scheduleSave();
-      renderVariantText(arr);
-    });
-    body.appendChild(addBtn);
-  }
-
-  modeChk.addEventListener("change", () => {
-    if (modeChk.checked) {
-      const str = typeof currentValue === "string" ? currentValue : "";
-      currentValue = [{ text: str }];
-      onChange(currentValue);
-      scheduleSave();
-      renderVariantText(currentValue);
-    } else {
-      const str = Array.isArray(currentValue)
-        ? (currentValue[currentValue.length - 1]?.text || "")
-        : (currentValue || "");
-      currentValue = str;
-      onChange(currentValue);
-      scheduleSave();
-      renderSimple(currentValue);
+function handleFileImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      gameData = JSON.parse(ev.target.result);
+      onDataLoaded();
+      toast("Imported " + file.name);
+    } catch (err) {
+      toast("Invalid JSON: " + err.message);
     }
-  });
-
-  if (Array.isArray(currentValue)) {
-    renderVariantText(currentValue);
-  } else {
-    renderSimple(currentValue);
-  }
+  };
+  reader.readAsText(file);
+  fileInput.value = "";
 }
 
-// ============================================================
-//  BRANCH / CHOICES EDITOR
-// ============================================================
-
-function renderChoicesEditor(container, choicesObj, onChange, depth = 0) {
-  clearEl(container);
-
-  Object.keys(choicesObj).forEach(key => {
-    renderChoiceCard(container, choicesObj, key, onChange, depth);
-  });
-
-  const addRow = el("div", { class: "row-actions" });
-  const addBtn = el("button", { class: "small primary" }, "+ Add Choice");
-  addBtn.addEventListener("click", () => {
-    const usedKeys = Object.keys(choicesObj);
-    let nextKey = "A";
-    for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
-      if (!usedKeys.includes(letter)) { nextKey = letter; break; }
-    }
-    choicesObj[nextKey] = {
-      text: "",
-      effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 }
-    };
-    onChange(choicesObj);
-    scheduleSave();
-    // Re-render the whole choices list cleanly
-    renderChoicesEditor(container, choicesObj, onChange, depth);
-  });
-  addRow.appendChild(addBtn);
-  container.appendChild(addRow);
-}
-
-function renderChoiceCard(container, choicesObj, key, onChange, depth) {
-  const choice = choicesObj[key];
-
-  const card = el("div", { class: "choice-card" });
-  const hdr = el("div", { class: "choice-card-header" });
-  const bdy = el("div", { class: "choice-card-body collapsed" });
-
-  const keyBadge = el("span", { class: "tag green" }, key);
-  const textPreview = el("span", { style: "margin-left:8px; color:#aaa; font-size:12px;" });
-  const previewText = typeof choice.text === "string"
-    ? choice.text
-    : (choice.text?.[choice.text.length - 1]?.text || "");
-  textPreview.textContent = previewText.slice(0, 50) || "(no text)";
-
-  const toggleIcon = el("span", { style: "margin-right:6px; color:#666;" }, "▶");
-
-  const hdrLeft = el("div", { style: "display:flex; align-items:center; gap:6px; flex:1;" });
-  hdrLeft.appendChild(toggleIcon);
-  hdrLeft.appendChild(keyBadge);
-  hdrLeft.appendChild(textPreview);
-  if (choice.if)   hdrLeft.appendChild(el("span", { class: "tag blue" }, "🔒 gated"));
-  if (choice.next) hdrLeft.appendChild(el("span", { class: "tag" }, "→ branch"));
-
-  const hdrRight = el("div", { style: "display:flex; gap:6px;" });
-
-  const renameBtn = el("button", { class: "small" }, "✏️");
-  renameBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const newKey = prompt("New choice key (single letter/word):", key);
-    if (!newKey || newKey === key) return;
-    if (choicesObj[newKey]) { alert("Key already exists!"); return; }
-    // Preserve insertion order by rebuilding the object
-    const entries = Object.entries(choicesObj);
-    const idx = entries.findIndex(([k]) => k === key);
-    entries[idx] = [newKey, entries[idx][1]];
-    // Clear and repopulate choicesObj
-    Object.keys(choicesObj).forEach(k => delete choicesObj[k]);
-    entries.forEach(([k, v]) => choicesObj[k] = v);
-    onChange(choicesObj);
-    scheduleSave();
-    renderChoicesEditor(container, choicesObj, onChange, depth);
-  });
-
-  const delBtn = el("button", { class: "small danger" }, "✕");
-  delBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (!confirm(`Delete choice "${key}"?`)) return;
-    delete choicesObj[key];
-    onChange(choicesObj);
-    scheduleSave();
-    renderChoicesEditor(container, choicesObj, onChange, depth);
-  });
-
-  hdrRight.appendChild(renameBtn);
-  hdrRight.appendChild(delBtn);
-  hdr.appendChild(hdrLeft);
-  hdr.appendChild(hdrRight);
-
-  // Toggle collapse
-  let collapsed = true;
-  hdr.addEventListener("click", (e) => {
-    if (e.target.tagName === "BUTTON") return;
-    collapsed = !collapsed;
-    toggleIcon.textContent = collapsed ? "▶" : "▼";
-    bdy.classList.toggle("collapsed", collapsed);
-  });
-
-  // ---- Body ----
-
-  // Text
-  const textSection = el("div", { style: "margin-bottom:10px;" });
-  textSection.appendChild(el("label", {}, "Choice text:"));
-  renderTextField(textSection, choice.text, newVal => {
-    choice.text = newVal;
-    const preview = typeof newVal === "string" ? newVal : (newVal?.[newVal.length - 1]?.text || "");
-    textPreview.textContent = preview.slice(0, 50) || "(no text)";
-    onChange(choicesObj);
-  }, "What the player sees...");
-  bdy.appendChild(textSection);
-
-  // Gate condition
-  const gateSection = el("div", { style: "margin-bottom:10px;" });
-  const gateToggle = el("label", { class: "inline-label" });
-  const gateChk = el("input", { type: "checkbox" });
-  gateChk.checked = !!choice.if;
-  gateToggle.appendChild(gateChk);
-  gateToggle.appendChild(document.createTextNode(" Gate this choice (requires condition to show)"));
-  gateSection.appendChild(gateToggle);
-
-  const showLockedRow = el("div", { style: "margin-top:6px; display:" + (choice.if ? "block" : "none") });
-  const showLockedToggle = el("label", { class: "inline-label" });
-  const showLockedChk = el("input", { type: "checkbox" });
-  showLockedChk.checked = !!choice.showLocked;
-  showLockedToggle.appendChild(showLockedChk);
-  showLockedToggle.appendChild(document.createTextNode(" Show as locked (greyed out) when condition fails"));
-  showLockedRow.appendChild(showLockedToggle);
-  showLockedChk.addEventListener("change", () => {
-    choice.showLocked = showLockedChk.checked;
-    onChange(choicesObj);
-    scheduleSave();
-  });
-
-  const condContainer = el("div", { class: "condition-builder", style: "display:" + (choice.if ? "block" : "none") });
-  if (choice.if) {
-    renderConditionBuilder(condContainer, choice.if, newCond => {
-      choice.if = newCond;
-      onChange(choicesObj);
-      scheduleSave();
-    });
-  }
-
-  gateChk.addEventListener("change", () => {
-    if (gateChk.checked) {
-      choice.if = { stat: "royalty", op: ">", value: 0 };
-      condContainer.style.display = "block";
-      showLockedRow.style.display = "block";
-      renderConditionBuilder(condContainer, choice.if, newCond => {
-        choice.if = newCond;
-        onChange(choicesObj);
-        scheduleSave();
-      });
-    } else {
-      delete choice.if;
-      delete choice.showLocked;
-      condContainer.style.display = "none";
-      showLockedRow.style.display = "none";
-      showLockedChk.checked = false;
-    }
-    onChange(choicesObj);
-    scheduleSave();
-  });
-
-  gateSection.appendChild(condContainer);
-  gateSection.appendChild(showLockedRow);
-  bdy.appendChild(gateSection);
-
-  // Effects
-  const effSection = el("div", { style: "margin-bottom:10px;" });
-  effSection.appendChild(el("label", {}, "Effects:"));
-  const effContainer = el("div");
-  renderEffectsEditor(effContainer, choice.effects || {}, newEff => {
-    choice.effects = newEff;
-    onChange(choicesObj);
-  });
-  effSection.appendChild(effContainer);
-  bdy.appendChild(effSection);
-
-  // Branch (next)
-  const branchSection = el("div");
-  const branchToggle = el("label", { class: "inline-label" });
-  const branchChk = el("input", { type: "checkbox" });
-  branchChk.checked = !!choice.next;
-  branchToggle.appendChild(branchChk);
-  branchToggle.appendChild(document.createTextNode(" Add branch dialogue (next)"));
-  branchSection.appendChild(branchToggle);
-
-  const branchBody = el("div", { class: "branch-block", style: "display:" + (choice.next ? "block" : "none") });
-
-  function renderBranchBody() {
-    clearEl(branchBody);
-    if (!choice.next) return;
-    branchBody.appendChild(el("div", { class: "branch-label" }, "↳ Branch"));
-
-    branchBody.appendChild(el("label", {}, "Branch description:"));
-    const descContainer = el("div", { style: "margin-bottom:10px;" });
-    renderTextField(descContainer, choice.next.desc, newVal => {
-      choice.next.desc = newVal;
-      onChange(choicesObj);
-      scheduleSave();
-    }, "What happens after this choice...");
-    branchBody.appendChild(descContainer);
-
-    branchBody.appendChild(el("label", {}, "Branch choices:"));
-    if (!choice.next.choices) choice.next.choices = {};
-    if (depth < 5) {
-      renderChoicesEditor(branchBody, choice.next.choices, newChoices => {
-        choice.next.choices = newChoices;
-        onChange(choicesObj);
-        scheduleSave();
-      }, depth + 1);
-    } else {
-      branchBody.appendChild(el("div", {}, "(max branch depth reached)"));
-    }
-  }
-
-  branchChk.addEventListener("change", () => {
-    if (branchChk.checked) {
-      choice.next = { desc: "", choices: {} };
-      branchBody.style.display = "block";
-      renderBranchBody();
-    } else {
-      if (!confirm("Remove branch? This will delete all nested choices.")) {
-        branchChk.checked = true;
-        return;
-      }
-      delete choice.next;
-      branchBody.style.display = "none";
-      clearEl(branchBody);
-    }
-    onChange(choicesObj);
-    scheduleSave();
-  });
-
-  if (choice.next) renderBranchBody();
-
-  branchSection.appendChild(branchBody);
-  bdy.appendChild(branchSection);
-
-  card.appendChild(hdr);
-  card.appendChild(bdy);
-  container.appendChild(card);
-}
-
-// ============================================================
-//  VARIANT EDITOR
-// ============================================================
-
-function renderVariantEditor(container, variant, isDefault, onChange) {
-  clearEl(container);
-
-  // Condition (not for default)
-  if (!isDefault) {
-    const condSection = el("div", { class: "section" });
-    const condHdr = el("div", { class: "section-header" });
-    condHdr.appendChild(el("span", {}, "Condition (when this variant is used)"));
-    const condBdy = el("div", { class: "section-body" });
-    makeCollapsible(condHdr, condBdy, false);
-    const condContainer = el("div", { class: "condition-builder" });
-    condBdy.appendChild(condContainer);
-    renderConditionBuilder(condContainer, variant.if || null, newCond => {
-      variant.if = newCond;
-      onChange(variant);
-      scheduleSave();
-    });
-    condSection.appendChild(condHdr);
-    condSection.appendChild(condBdy);
-    container.appendChild(condSection);
-  }
-
-  // Visual
-  const visualSection = el("div", { class: "section" });
-  const visualHdr = el("div", { class: "section-header" });
-  visualHdr.appendChild(el("span", {}, "Visual"));
-  const visualBdy = el("div", { class: "section-body" });
-  makeCollapsible(visualHdr, visualBdy, false);
-
-  const visual = variant.visual || {};
-
-  const portraitRow = el("div", { class: "form-row" });
-  const portraitGroup = el("div", { class: "form-group" });
-  portraitGroup.appendChild(el("label", {}, "Portrait path (e.g. images/truffle.png)"));
-  const portraitIn = el("input", { type: "text", placeholder: "images/default.png", value: visual.portrait || "" });
-  portraitIn.addEventListener("input", () => {
-    if (!variant.visual) variant.visual = {};
-    variant.visual.portrait = portraitIn.value;
-    onChange(variant);
-    scheduleSave();
-  });
-  portraitGroup.appendChild(portraitIn);
-  portraitRow.appendChild(portraitGroup);
-
-  const colorGroup = el("div", { class: "form-group shrink" });
-  colorGroup.appendChild(el("label", {}, "Accent colour"));
-  const colorIn = el("input", { type: "color", value: visual.color || "#888888" });
-  colorIn.addEventListener("input", () => {
-    if (!variant.visual) variant.visual = {};
-    variant.visual.color = colorIn.value;
-    onChange(variant);
-    scheduleSave();
-  });
-  colorGroup.appendChild(colorIn);
-  portraitRow.appendChild(colorGroup);
-
-  // Colour hex display
-  const colorHexGroup = el("div", { class: "form-group shrink" });
-  colorHexGroup.appendChild(el("label", {}, "Hex"));
-  const colorHexIn = el("input", { type: "text", value: visual.color || "#888888", style: "width:80px;" });
-  colorHexIn.addEventListener("input", () => {
-    if (!variant.visual) variant.visual = {};
-    variant.visual.color = colorHexIn.value;
-    colorIn.value = colorHexIn.value;
-    onChange(variant);
-    scheduleSave();
-  });
-  colorIn.addEventListener("input", () => {
-    colorHexIn.value = colorIn.value;
-  });
-  colorHexGroup.appendChild(colorHexIn);
-  portraitRow.appendChild(colorHexGroup);
-
-  visualBdy.appendChild(portraitRow);
-  visualSection.appendChild(visualHdr);
-  visualSection.appendChild(visualBdy);
-  container.appendChild(visualSection);
-
-  // Description
-  const descSection = el("div", { class: "section" });
-  const descHdr = el("div", { class: "section-header" });
-  descHdr.appendChild(el("span", {}, "Description"));
-  const descBdy = el("div", { class: "section-body" });
-  makeCollapsible(descHdr, descBdy, false);
-  renderTextField(descBdy, variant.desc, newVal => {
-    variant.desc = newVal;
-    onChange(variant);
-    scheduleSave();
-  }, "NPC description shown to player...");
-  descSection.appendChild(descHdr);
-  descSection.appendChild(descBdy);
-  container.appendChild(descSection);
-
-  // Choices
-  const choicesSection = el("div", { class: "section" });
-  const choicesHdr = el("div", { class: "section-header" });
-  choicesHdr.appendChild(el("span", {}, "Choices"));
-  const choicesBdy = el("div", { class: "section-body" });
-  makeCollapsible(choicesHdr, choicesBdy, false);
-  if (!variant.choices) variant.choices = {};
-  renderChoicesEditor(choicesBdy, variant.choices, newChoices => {
-    variant.choices = newChoices;
-    onChange(variant);
-    scheduleSave();
-  });
-  choicesSection.appendChild(choicesHdr);
-  choicesSection.appendChild(choicesBdy);
-  container.appendChild(choicesSection);
-}
-
-// ============================================================
-//  NPC EDITOR
-// ============================================================
-
-function renderNpcEditor(npcName) {
-  const pane = document.getElementById("editor-content");
-  clearEl(pane);
-
-  const npc = DATA.npcs[npcName];
-  if (!npc) return;
-
-  // Header
-  const hdr = el("div", { class: "npc-editor-header" });
-  const nameIn = el("input", { type: "text", value: npcName });
-  nameIn.addEventListener("change", () => {
-    const newName = nameIn.value.trim();
-    if (!newName || newName === npcName) { nameIn.value = npcName; return; }
-    if (DATA.npcs[newName]) { alert("An NPC with that name already exists!"); nameIn.value = npcName; return; }
-    DATA.npcs[newName] = DATA.npcs[npcName];
-    delete DATA.npcs[npcName];
-    // Update schedule references
-    DATA.schedule.forEach(day => {
-      day.forEach((slot, i) => { if (slot === npcName) day[i] = newName; });
-    });
-    if (activeVariantIndex[npcName] !== undefined) {
-      activeVariantIndex[newName] = activeVariantIndex[npcName];
-      delete activeVariantIndex[npcName];
-    }
-    currentView = "npc:" + newName;
-    scheduleSave();
-    renderNpcList();
-    renderNpcEditor(newName);
-  });
-  hdr.appendChild(nameIn);
-
-  const dupBtn = el("button", {}, "⧉ Duplicate");
-  dupBtn.addEventListener("click", () => {
-    let newName = npcName + "_copy";
-    let i = 2;
-    while (DATA.npcs[newName]) newName = npcName + "_copy" + i++;
-    DATA.npcs[newName] = clone(DATA.npcs[npcName]);
-    scheduleSave();
-    renderNpcList();
-    selectNpc(newName);
-  });
-
-  const delBtn = el("button", { class: "danger" }, "🗑 Delete NPC");
-  delBtn.addEventListener("click", () => {
-    if (!confirm(`Delete NPC "${npcName}"? This cannot be undone.`)) return;
-    delete DATA.npcs[npcName];
-    DATA.schedule.forEach(day => {
-      day.forEach((slot, i) => { if (slot === npcName) day[i] = ""; });
-    });
-    scheduleSave();
-    renderNpcList();
-    currentView = null;
-    clearEl(pane);
-    pane.appendChild(el("div", { class: "placeholder" }, "NPC deleted. Select another."));
-  });
-
-  hdr.appendChild(dupBtn);
-  hdr.appendChild(delBtn);
-  pane.appendChild(hdr);
-
-  // Variant toggle
-  const useVariants = isVariantBased(npc);
-  const variantToggle = el("label", { class: "inline-label", style: "margin-bottom:12px; display:flex;" });
-  const variantChk = el("input", { type: "checkbox" });
-  variantChk.checked = useVariants;
-  variantToggle.appendChild(variantChk);
-  variantToggle.appendChild(document.createTextNode(" Use variant system (multiple versions of this NPC)"));
-  pane.appendChild(variantToggle);
-
-  const variantArea = el("div");
-  pane.appendChild(variantArea);
-
-  variantChk.addEventListener("change", () => {
-    if (variantChk.checked) {
-      const flat = clone(npc);
-      delete flat.variants;
-      DATA.npcs[npcName] = { variants: [flat] };
-      activeVariantIndex[npcName] = 0;
-    } else {
-      const first = clone(DATA.npcs[npcName].variants?.[0] || {});
-      delete first.if;
-      DATA.npcs[npcName] = first;
-    }
-    scheduleSave();
-    renderNpcEditor(npcName);
-  });
-
-  if (useVariants) {
-    renderVariantTabs(variantArea, npcName);
-  } else {
-    const varContainer = el("div");
-    renderVariantEditor(varContainer, DATA.npcs[npcName], true, () => {
-      scheduleSave();
-    });
-    variantArea.appendChild(varContainer);
-  }
-}
-
-function renderVariantTabs(container, npcName) {
-  clearEl(container);
-  const npc = DATA.npcs[npcName];
-  const variants = npc.variants;
-  const activeIdx = Math.min(activeVariantIndex[npcName] ?? 0, variants.length - 1);
-  activeVariantIndex[npcName] = activeIdx;
-
-  // Tab bar
-  const tabBar = el("div", { class: "variant-tabs" });
-
-  variants.forEach((v, i) => {
-    const isDefault = i === variants.length - 1;
-    const tab = el("div", { class: "variant-tab" + (i === activeIdx ? " active" : "") });
-    tab.textContent = isDefault ? `Default (${i + 1})` : `Variant ${i + 1}`;
-    tab.addEventListener("click", () => {
-      activeVariantIndex[npcName] = i;
-      renderVariantTabs(container, npcName);
-    });
-    tabBar.appendChild(tab);
-  });
-
-  const addTabBtn = el("button", { class: "small primary" }, "+ Add Variant");
-  addTabBtn.addEventListener("click", () => {
-    const newVariant = {
-      if: { stat: "royalty", op: ">", value: 0 },
-      desc: "",
-      visual: {},
-      choices: {}
-    };
-    // Insert before the last (default) variant
-    variants.splice(variants.length - 1, 0, newVariant);
-    activeVariantIndex[npcName] = variants.length - 2;
-    scheduleSave();
-    renderVariantTabs(container, npcName);
-  });
-  tabBar.appendChild(addTabBtn);
-
-  if (variants.length > 1) {
-    const delTabBtn = el("button", { class: "small danger" }, "✕ Delete Variant");
-    delTabBtn.addEventListener("click", () => {
-      if (!confirm(`Delete Variant ${activeIdx + 1}?`)) return;
-      variants.splice(activeIdx, 1);
-      activeVariantIndex[npcName] = Math.max(0, activeIdx - 1);
-      scheduleSave();
-      renderVariantTabs(container, npcName);
-    });
-    tabBar.appendChild(delTabBtn);
-  }
-
-  if (activeIdx > 0) {
-    const moveLeftBtn = el("button", { class: "small" }, "← Move");
-    moveLeftBtn.addEventListener("click", () => {
-      [variants[activeIdx - 1], variants[activeIdx]] = [variants[activeIdx], variants[activeIdx - 1]];
-      activeVariantIndex[npcName] = activeIdx - 1;
-      scheduleSave();
-      renderVariantTabs(container, npcName);
-    });
-    tabBar.appendChild(moveLeftBtn);
-  }
-
-  if (activeIdx < variants.length - 1) {
-    const moveRightBtn = el("button", { class: "small" }, "→ Move");
-    moveRightBtn.addEventListener("click", () => {
-      [variants[activeIdx], variants[activeIdx + 1]] = [variants[activeIdx + 1], variants[activeIdx]];
-      activeVariantIndex[npcName] = activeIdx + 1;
-      scheduleSave();
-      renderVariantTabs(container, npcName);
-    });
-    tabBar.appendChild(moveRightBtn);
-  }
-
-  container.appendChild(tabBar);
-
-  // Active variant editor
-  const isDefault = activeIdx === variants.length - 1;
-  const varContainer = el("div");
-  renderVariantEditor(varContainer, variants[activeIdx], isDefault, () => {
-    scheduleSave();
-  });
-  container.appendChild(varContainer);
-}
-
-// ============================================================
-//  SCHEDULE EDITOR
-// ============================================================
-
-function renderScheduleEditor() {
-  const pane = document.getElementById("editor-content");
-  clearEl(pane);
-
-  pane.appendChild(el("h2", { style: "margin-bottom:12px;" }, "📅 Schedule"));
-
-  // Always use live NPC names so newly added NPCs appear
-  const npcNames = ["", ...getNpcNames()];
-
-  const days = DATA.config.days;
-  const slotsPerDay = DATA.config.npcs_per_day;
-
-  // Sync schedule dimensions to config
-  while (DATA.schedule.length < days) DATA.schedule.push(Array(slotsPerDay).fill(""));
-  DATA.schedule.length = days;
-  DATA.schedule.forEach(day => {
-    while (day.length < slotsPerDay) day.push("");
-    day.length = slotsPerDay;
-  });
-
-  const table = el("table", { class: "schedule-table" });
-  const thead = el("thead");
-  const headRow = el("tr");
-  headRow.appendChild(el("th", {}, "Day"));
-  for (let s = 0; s < slotsPerDay; s++) {
-    headRow.appendChild(el("th", {}, `Slot ${s + 1}`));
-  }
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-
-  const tbody = el("tbody");
-  DATA.schedule.forEach((day, dayIdx) => {
-    const row = el("tr");
-    row.appendChild(el("td", { style: "font-weight:bold; color:#aaa;" }, `Day ${dayIdx + 1}`));
-    day.forEach((slot, slotIdx) => {
-      const td = el("td");
-      const sel = el("select");
-      npcNames.forEach(name => {
-        const opt = el("option", { value: name }, name || "(empty)");
-        if (name === slot) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      sel.addEventListener("change", () => {
-        DATA.schedule[dayIdx][slotIdx] = sel.value;
-        scheduleSave();
-      });
-      td.appendChild(sel);
-      row.appendChild(td);
-    });
-    tbody.appendChild(row);
-  });
-  table.appendChild(tbody);
-  pane.appendChild(table);
-
-  const controls = el("div", { class: "row-actions", style: "margin-top:14px;" });
-
-  const addDayBtn = el("button", {}, "+ Add Day");
-  addDayBtn.addEventListener("click", () => {
-    DATA.config.days++;
-    DATA.schedule.push(Array(DATA.config.npcs_per_day).fill(""));
-    scheduleSave();
-    renderScheduleEditor();
-  });
-
-  const remDayBtn = el("button", { class: "danger" }, "- Remove Day");
-  remDayBtn.addEventListener("click", () => {
-    if (DATA.config.days <= 1) return;
-    DATA.config.days--;
-    DATA.schedule.pop();
-    scheduleSave();
-    renderScheduleEditor();
-  });
-
-  const addSlotBtn = el("button", {}, "+ Add Slot");
-  addSlotBtn.addEventListener("click", () => {
-    DATA.config.npcs_per_day++;
-    DATA.schedule.forEach(day => day.push(""));
-    scheduleSave();
-    renderScheduleEditor();
-  });
-
-  const remSlotBtn = el("button", { class: "danger" }, "- Remove Slot");
-  remSlotBtn.addEventListener("click", () => {
-    if (DATA.config.npcs_per_day <= 1) return;
-    DATA.config.npcs_per_day--;
-    DATA.schedule.forEach(day => day.pop());
-    scheduleSave();
-    renderScheduleEditor();
-  });
-
-  controls.appendChild(addDayBtn);
-  controls.appendChild(remDayBtn);
-  controls.appendChild(addSlotBtn);
-  controls.appendChild(remSlotBtn);
-  pane.appendChild(controls);
-}
-
-// ============================================================
-//  CONFIG EDITOR
-// ============================================================
-
-function renderConfigEditor() {
-  const pane = document.getElementById("editor-content");
-  clearEl(pane);
-
-  pane.appendChild(el("h2", { style: "margin-bottom:12px;" }, "⚙️ Config"));
-
-  const note = el("p", { style: "color:#888; margin-bottom:12px; font-size:12px;" },
-    "Changing days/npcs_per_day here also resizes the schedule. Use the Schedule editor to assign NPCs to slots.");
-  pane.appendChild(note);
-
-  const daysGroup = el("div", { class: "form-group", style: "max-width:200px; margin-bottom:12px;" });
-  daysGroup.appendChild(el("label", {}, "Number of days"));
-  const daysIn = el("input", { type: "number", value: DATA.config.days, min: "1" });
-  daysIn.addEventListener("change", () => {
-    const v = Math.max(1, parseInt(daysIn.value) || 1);
-    daysIn.value = v;
-    DATA.config.days = v;
-    while (DATA.schedule.length < v) DATA.schedule.push(Array(DATA.config.npcs_per_day).fill(""));
-    DATA.schedule.length = v;
-    scheduleSave();
-  });
-  daysGroup.appendChild(daysIn);
-  pane.appendChild(daysGroup);
-
-  const slotsGroup = el("div", { class: "form-group", style: "max-width:200px; margin-bottom:12px;" });
-  slotsGroup.appendChild(el("label", {}, "NPCs per day (slots)"));
-  const slotsIn = el("input", { type: "number", value: DATA.config.npcs_per_day, min: "1" });
-  slotsIn.addEventListener("change", () => {
-    const v = Math.max(1, parseInt(slotsIn.value) || 1);
-    slotsIn.value = v;
-    DATA.config.npcs_per_day = v;
-    DATA.schedule.forEach(day => {
-      while (day.length < v) day.push("");
-      day.length = v;
-    });
-    scheduleSave();
-  });
-  slotsGroup.appendChild(slotsIn);
-  pane.appendChild(slotsGroup);
-
-  pane.appendChild(el("p", { style: "color:#666; font-size:12px;" },
-    "Stat keys (fixed): " + STAT_KEYS.join(", ")));
-}
-
-// ============================================================
-//  NPC LIST
-// ============================================================
-
-function renderNpcList() {
-  const list = document.getElementById("npc-list");
-  clearEl(list);
-
-  getNpcNames().forEach(name => {
-    const isActive = currentView === "npc:" + name;
-    const item = el("div", { class: "npc-list-item" + (isActive ? " active" : "") });
-    const nameSpan = el("span", { class: "npc-list-name" }, name);
-    const delSpan = el("span", { class: "npc-list-del", title: "Delete NPC" }, "✕");
-    delSpan.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (!confirm(`Delete NPC "${name}"?`)) return;
-      delete DATA.npcs[name];
-      DATA.schedule.forEach(day => {
-        day.forEach((slot, i) => { if (slot === name) day[i] = ""; });
-      });
-      scheduleSave();
-      renderNpcList();
-      if (currentView === "npc:" + name) {
-        currentView = null;
-        const pane = document.getElementById("editor-content");
-        clearEl(pane);
-        pane.appendChild(el("div", { class: "placeholder" }, "NPC deleted. Select another."));
-      }
-    });
-    item.appendChild(nameSpan);
-    item.appendChild(delSpan);
-    item.addEventListener("click", () => selectNpc(name));
-    list.appendChild(item);
-  });
-}
-
-function selectNpc(name) {
-  currentView = "npc:" + name;
-  renderNpcList();
-  renderNpcEditor(name);
-  // Clear active state on nav buttons
-  document.getElementById("btn-nav-schedule").classList.remove("active");
-  document.getElementById("btn-nav-config").classList.remove("active");
-}
-
-// ============================================================
-//  VALIDATION
-// ============================================================
-
-function runValidation() {
-  const warnings = [];
-
-  if (DATA.schedule.length !== DATA.config.days) {
-    warnings.push({ msg: `Schedule has ${DATA.schedule.length} days but config says ${DATA.config.days}`, type: "error" });
-  }
-
-  DATA.schedule.forEach((day, i) => {
-    if (day.length !== DATA.config.npcs_per_day) {
-      warnings.push({ msg: `Day ${i + 1} has ${day.length} slots but config says ${DATA.config.npcs_per_day}`, type: "error" });
-    }
-    day.forEach((slot, j) => {
-      if (!slot) {
-        warnings.push({ msg: `Day ${i + 1}, Slot ${j + 1} is empty`, type: "warn" });
-      } else if (!DATA.npcs[slot]) {
-        warnings.push({ msg: `Day ${i + 1}, Slot ${j + 1}: NPC "${slot}" does not exist`, type: "error" });
-      }
-    });
-  });
-
-  Object.entries(DATA.npcs).forEach(([name, npc]) => {
-    if (isVariantBased(npc)) {
-      if (!npc.variants || npc.variants.length === 0) {
-        warnings.push({ msg: `NPC "${name}" has an empty variants array`, type: "error" });
-      } else {
-        const last = npc.variants[npc.variants.length - 1];
-        if (last.if) {
-          warnings.push({ msg: `NPC "${name}": last variant has a condition — it should be the default (no condition)`, type: "warn" });
-        }
-        npc.variants.forEach((v, i) => {
-          checkChoices(name, v.choices || {}, warnings, `variant ${i + 1}`);
-        });
-      }
-    } else {
-      if (!npc.choices || Object.keys(npc.choices).length === 0) {
-        warnings.push({ msg: `NPC "${name}" has no choices`, type: "warn" });
-      }
-      checkChoices(name, npc.choices || {}, warnings, "");
-    }
-
-    const portrait = isVariantBased(npc)
-      ? npc.variants?.[0]?.visual?.portrait
-      : npc.visual?.portrait;
-    if (portrait && !portrait.startsWith("images/")) {
-      warnings.push({ msg: `NPC "${name}": portrait path "${portrait}" doesn't start with images/`, type: "warn" });
-    }
-  });
-
-  if (warnings.length === 0) {
-    warnings.push({ msg: "All checks passed! ✓", type: "ok" });
-  }
-
-  displayWarnings(warnings);
-}
-
-function checkChoices(npcName, choices, warnings, context) {
-  Object.entries(choices).forEach(([key, choice]) => {
-    if (!choice.text && choice.text !== 0) {
-      warnings.push({ msg: `NPC "${npcName}" ${context} choice "${key}": missing text`, type: "warn" });
-    }
-    if (choice.effects && !Array.isArray(choice.effects)) {
-      Object.keys(choice.effects).forEach(k => {
-        if (!STAT_KEYS.includes(k)) {
-          warnings.push({ msg: `NPC "${npcName}" ${context} choice "${key}": unknown effect key "${k}"`, type: "error" });
-        }
-      });
-    }
-    if (choice.next && choice.next.choices) {
-      checkChoices(npcName, choice.next.choices, warnings, `${context} → branch of ${key}`);
-    }
-  });
-}
-
-function displayWarnings(warnings) {
-  const body = document.getElementById("warnings-body");
-  const badge = document.getElementById("warning-count-badge");
-  clearEl(body);
-
-  const errorCount = warnings.filter(w => w.type === "error").length;
-  const warnCount  = warnings.filter(w => w.type === "warn").length;
-
-  if (errorCount + warnCount > 0) {
-    badge.style.display = "inline";
-    badge.textContent = errorCount + warnCount;
-  } else {
-    badge.style.display = "none";
-  }
-
-  warnings.forEach(w => {
-    const icon = w.type === "error" ? "❌" : w.type === "ok" ? "✅" : "⚠️";
-    const item = el("div", { class: "warning-item " + (w.type || "warn") }, icon + " " + w.msg);
-    body.appendChild(item);
-  });
-}
-
-// ============================================================
-//  JSON PREVIEW
-// ============================================================
-
-function refreshJsonPreview() {
-  const pre = document.getElementById("json-preview");
-  if (!pre) return;
-  const panel = document.getElementById("json-preview-panel");
-  if (panel.classList.contains("hidden")) return;
-  pre.textContent = JSON.stringify(DATA, null, 2);
-}
-
-// ============================================================
-//  SAVE / LOAD
-// ============================================================
-
-function saveJson() {
-  const str = JSON.stringify(DATA, null, 2);
-  const blob = new Blob([str], { type: "application/json" });
+function exportJson() {
+  const blob = new Blob([JSON.stringify(gameData, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = "dialogue.json";
   a.click();
   URL.revokeObjectURL(url);
+  toast("Exported dialogue.json");
 }
 
-function loadData(json) {
-  try {
-    const parsed = JSON.parse(json);
-    DATA = parsed;
-    if (!DATA.config) DATA.config = { days: 3, npcs_per_day: 5 };
-    if (!DATA.npcs)   DATA.npcs = {};
-    if (!DATA.schedule) DATA.schedule = [];
-    activeVariantIndex = {};
-    currentView = null;
-    renderNpcList();
-    const pane = document.getElementById("editor-content");
-    clearEl(pane);
-    pane.appendChild(el("div", { class: "placeholder" }, "Data loaded! Select an NPC or open Schedule / Config."));
-    refreshJsonPreview();
-    runValidation();
-  } catch (e) {
-    alert("Failed to parse JSON: " + e.message);
+function onDataLoaded() {
+  if (!gameData.config) gameData.config = { days: 3, npcs_per_day: 5 };
+  if (!gameData.npcs) gameData.npcs = {};
+  if (!gameData.schedule) gameData.schedule = [];
+  refreshSidebar();
+  showPanel("config");
+}
+
+// ─── Sidebar ───
+function bindSidebarNav() {
+  sidebar.addEventListener("click", (e) => {
+    const item = e.target.closest(".sidebar-item");
+    if (item && item.dataset.panel) {
+      showPanel(item.dataset.panel, item.dataset.npc || null);
+    }
+  });
+  $("#addNpcBtn").addEventListener("click", addNpc);
+}
+
+function refreshSidebar() {
+  npcSidebarList.innerHTML = "";
+  for (const name of Object.keys(gameData.npcs)) {
+    const div = document.createElement("div");
+    div.className = "sidebar-item";
+    div.dataset.panel = "npc";
+    div.dataset.npc = name;
+    div.innerHTML = `<span class="icon">👤</span> ${name}`;
+    npcSidebarList.appendChild(div);
+  }
+  highlightSidebar();
+}
+
+function highlightSidebar() {
+  $$(".sidebar-item").forEach((el) => {
+    el.classList.toggle("active",
+      el.dataset.panel === activePanel &&
+      (el.dataset.npc || null) === activeNpc
+    );
+  });
+}
+
+function addNpc() {
+  let name = prompt("NPC name (Title Case):");
+  if (!name || !name.trim()) return;
+  name = name.trim();
+  if (gameData.npcs[name]) { toast("NPC already exists"); return; }
+  gameData.npcs[name] = {
+    desc: "",
+    visual: { portrait: "images/default.png", color: "#6b8e23" },
+    choices: {
+      A: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } },
+      B: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } },
+      C: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } },
+      D: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } }
+    }
+  };
+  refreshSidebar();
+  showPanel("npc", name);
+  toast("Added " + name);
+}
+
+// ─── Panel Router ───
+function showPanel(panel, npcName) {
+  activePanel = panel;
+  activeNpc = npcName || null;
+  activeVariantIndex = 0;
+  highlightSidebar();
+
+  switch (panel) {
+    case "config": renderConfigPanel(); break;
+    case "schedule": renderSchedulePanel(); break;
+    case "npc": renderNpcPanel(npcName); break;
+    default: mainPanel.innerHTML = `<div class="empty-state">Select something from the sidebar.</div>`;
   }
 }
 
-// ============================================================
-//  SMALL FORM HELPERS
-// ============================================================
-
-function makeSelect(options, currentVal, onChange) {
-  const sel = el("select");
-  options.forEach(opt => {
-    const o = el("option", { value: opt }, opt);
-    if (opt === currentVal) o.selected = true;
-    sel.appendChild(o);
-  });
-  sel.addEventListener("change", () => onChange(sel.value));
-  return sel;
+// ─── Config Panel ───
+function renderConfigPanel() {
+  const c = gameData.config;
+  mainPanel.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h2>Game Config</h2></div>
+      <div class="form-row">
+        <div class="form-group small">
+          <label>Days</label>
+          <input type="number" id="cfgDays" value="${c.days}" min="1">
+        </div>
+        <div class="form-group small">
+          <label>NPCs/Day</label>
+          <input type="number" id="cfgNpd" value="${c.npcs_per_day}" min="1">
+        </div>
+      </div>
+    </div>`;
+  $("#cfgDays").addEventListener("change", (e) => { gameData.config.days = parseInt(e.target.value) || 1; });
+  $("#cfgNpd").addEventListener("change", (e) => { gameData.config.npcs_per_day = parseInt(e.target.value) || 1; });
 }
 
-function makeNumberInput(currentVal, onChange) {
-  const inp = el("input", { type: "number", value: currentVal });
-  inp.addEventListener("change", () => onChange(parseInt(inp.value) || 0));
-  return inp;
-}
+// ─── Schedule Panel ───
+function renderSchedulePanel() {
+  const days = gameData.config.days;
+  const npd = gameData.config.npcs_per_day;
+  const npcNames = Object.keys(gameData.npcs);
 
-function makeTextInput(currentVal, onChange, placeholder = "") {
-  const inp = el("input", { type: "text", value: currentVal, placeholder });
-  inp.addEventListener("input", () => onChange(inp.value));
-  return inp;
-}
+  // Ensure schedule array length matches days
+  while (gameData.schedule.length < days) gameData.schedule.push([]);
+  if (gameData.schedule.length > days) gameData.schedule.length = days;
 
-function makeCheckbox(labelText, checked, onChange) {
-  const lbl = el("label", { class: "inline-label" });
-  const chk = el("input", { type: "checkbox" });
-  chk.checked = checked;
-  chk.addEventListener("change", () => onChange(chk.checked));
-  lbl.appendChild(chk);
-  lbl.appendChild(document.createTextNode(" " + labelText));
-  return lbl;
-}
+  let html = `<div class="card"><div class="card-header"><h2>Schedule</h2></div>`;
 
-function appendFormGroup(row, labelText, inputEl) {
-  const group = el("div", { class: "form-group" });
-  group.appendChild(el("label", {}, labelText));
-  group.appendChild(inputEl);
-  row.appendChild(group);
-}
+  for (let d = 0; d < days; d++) {
+    while (gameData.schedule[d].length < npd) gameData.schedule[d].push(npcNames[0] || "");
+    if (gameData.schedule[d].length > npd) gameData.schedule[d].length = npd;
 
-// ============================================================
-//  INIT
-// ============================================================
-
-document.addEventListener("DOMContentLoaded", () => {
-
-  // Draft banner
-  const draft = localStorage.getItem(DRAFT_KEY);
-  if (draft) {
-    document.getElementById("draft-banner").style.display = "flex";
+    html += `<div class="schedule-day"><h3>Day ${d + 1}</h3><div class="schedule-slots">`;
+    for (let s = 0; s < npd; s++) {
+      const val = gameData.schedule[d][s] || "";
+      html += `<div class="schedule-slot">
+        <span style="color:#888;font-size:0.75rem;">${s + 1}.</span>
+        <select data-day="${d}" data-slot="${s}">
+          <option value="">-- none --</option>
+          ${npcNames.map(n => `<option value="${n}" ${n === val ? "selected" : ""}>${n}</option>`).join("")}
+        </select>
+      </div>`;
+    }
+    html += `</div></div>`;
   }
 
-  document.getElementById("btn-restore-draft").addEventListener("click", () => {
-    const d = localStorage.getItem(DRAFT_KEY);
-    if (d) loadData(d);
-    document.getElementById("draft-banner").style.display = "none";
+  html += `</div>`;
+  mainPanel.innerHTML = html;
+
+  mainPanel.querySelectorAll(".schedule-slot select").forEach((sel) => {
+    sel.addEventListener("change", (e) => {
+      const d = parseInt(e.target.dataset.day);
+      const s = parseInt(e.target.dataset.slot);
+      gameData.schedule[d][s] = e.target.value;
+    });
+  });
+}
+
+// ─── NPC Panel ───
+function renderNpcPanel(name) {
+  if (!name || !gameData.npcs[name]) {
+    mainPanel.innerHTML = `<div class="empty-state">NPC not found.</div>`;
+    return;
+  }
+
+  const npc = gameData.npcs[name];
+  const hasVariants = Array.isArray(npc.variants);
+
+  let html = `<div class="card"><div class="card-header">
+    <h2>${name}</h2>
+    <div class="btn-group">
+      <button class="btn btn-small" id="renameNpcBtn">✏️ Rename</button>
+      <button class="btn btn-small btn-danger" id="deleteNpcBtn">🗑️ Delete</button>
+    </div>
+  </div>`;
+
+  if (hasVariants) {
+    html += renderVariantTabs(npc);
+    html += renderVariantBody(npc, npc.variants[activeVariantIndex], activeVariantIndex, name);
+    html += `<div class="mt-12"><button class="btn btn-small btn-success" id="addVariantBtn">+ Add Variant</button>
+      <button class="btn btn-small" id="removeVariantsBtn">Convert to Simple NPC</button></div>`;
+  } else {
+    html += `<div class="mb-8"><button class="btn btn-small" id="convertToVariantsBtn">Convert to Variants</button></div>`;
+    html += renderSimpleNpcBody(npc, name);
+  }
+
+  html += `</div>`;
+  mainPanel.innerHTML = html;
+
+  // Bind NPC-level buttons
+  $("#renameNpcBtn").addEventListener("click", () => renameNpc(name));
+  $("#deleteNpcBtn").addEventListener("click", () => deleteNpc(name));
+
+  if (hasVariants) {
+    $$(".variant-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        activeVariantIndex = parseInt(tab.dataset.index);
+        renderNpcPanel(name);
+      });
+    });
+    const addVBtn = $("#addVariantBtn");
+    if (addVBtn) addVBtn.addEventListener("click", () => {
+      npc.variants.push({
+        desc: "",
+        visual: { portrait: "images/default.png", color: "#6b8e23" },
+        choices: {
+          A: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } },
+          B: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } },
+          C: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } },
+          D: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } }
+        }
+      });
+      activeVariantIndex = npc.variants.length - 1;
+      renderNpcPanel(name);
+    });
+    const rmVBtn = $("#removeVariantsBtn");
+    if (rmVBtn) rmVBtn.addEventListener("click", () => {
+      const first = npc.variants[0] || {};
+      delete npc.variants;
+      Object.assign(npc, { desc: first.desc || "", visual: first.visual || {}, choices: first.choices || {} });
+      activeVariantIndex = 0;
+      renderNpcPanel(name);
+    });
+  } else {
+    const cvBtn = $("#convertToVariantsBtn");
+    if (cvBtn) cvBtn.addEventListener("click", () => {
+      const variant = { desc: npc.desc, visual: npc.visual, choices: npc.choices };
+      delete npc.desc; delete npc.visual; delete npc.choices;
+      npc.variants = [variant];
+      activeVariantIndex = 0;
+      renderNpcPanel(name);
+    });
+  }
+
+  bindAllEditorInputs(name);
+}
+
+function renameNpc(oldName) {
+  let newName = prompt("New name:", oldName);
+  if (!newName || !newName.trim() || newName.trim() === oldName) return;
+  newName = newName.trim();
+  if (gameData.npcs[newName]) { toast("Name already taken"); return; }
+
+  // Rebuild npcs preserving order
+  const newNpcs = {};
+  for (const key of Object.keys(gameData.npcs)) {
+    if (key === oldName) newNpcs[newName] = gameData.npcs[key];
+    else newNpcs[key] = gameData.npcs[key];
+  }
+  gameData.npcs = newNpcs;
+
+  // Update schedule references
+  for (const day of gameData.schedule) {
+    for (let i = 0; i < day.length; i++) {
+      if (day[i] === oldName) day[i] = newName;
+    }
+  }
+
+  refreshSidebar();
+  showPanel("npc", newName);
+  toast("Renamed to " + newName);
+}
+
+function deleteNpc(name) {
+  if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+  delete gameData.npcs[name];
+  // Remove from schedule
+  for (const day of gameData.schedule) {
+    for (let i = day.length - 1; i >= 0; i--) {
+      if (day[i] === name) day[i] = "";
+    }
+  }
+  refreshSidebar();
+  mainPanel.innerHTML = `<div class="empty-state">NPC deleted.</div>`;
+  activePanel = "welcome";
+  activeNpc = null;
+}
+
+// ─── Variant Tabs ───
+function renderVariantTabs(npc) {
+  let html = `<div class="variant-tabs">`;
+  npc.variants.forEach((v, i) => {
+    const label = v.if ? `Variant ${i + 1} (conditional)` : `Variant ${i + 1} (default)`;
+    html += `<div class="variant-tab ${i === activeVariantIndex ? "active" : ""}" data-index="${i}">${label}</div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+// ─── Simple NPC Body (no variants) ───
+function renderSimpleNpcBody(npc, npcName) {
+  let html = "";
+  html += renderVisualFields(npc.visual || {}, "npc");
+  html += renderDescField(npc.desc, "npc");
+  html += `<h3 class="mt-12 mb-8" style="color:#e94560;">Choices</h3>`;
+  html += renderChoices(npc.choices || {}, "npc", npcName);
+  return html;
+}
+
+// ─── Variant Body ───
+function renderVariantBody(npc, variant, vIdx, npcName) {
+  if (!variant) return `<div class="empty-state">No variant selected.</div>`;
+  const prefix = `var_${vIdx}`;
+  let html = "";
+
+  // Condition
+  html += `<div class="mb-8"><label>Variant Condition (if)</label>`;
+  html += renderConditionBuilder(variant.if || null, prefix + "_if");
+  html += `</div>`;
+
+  // Delete variant button
+  html += `<button class="btn btn-small btn-danger mb-8" id="deleteVariantBtn">🗑️ Delete This Variant</button>`;
+
+  html += renderVisualFields(variant.visual || {}, prefix);
+  html += renderDescField(variant.desc, prefix);
+  html += `<h3 class="mt-12 mb-8" style="color:#e94560;">Choices</h3>`;
+  html += renderChoices(variant.choices || {}, prefix, npcName);
+  return html;
+}
+
+// ─── Visual Fields ───
+function renderVisualFields(visual, prefix) {
+  return `<div class="form-row">
+    <div class="form-group">
+      <label>Portrait Path</label>
+      <input type="text" data-bind="${prefix}.visual.portrait" value="${escAttr(visual.portrait || "")}">
+    </div>
+    <div class="form-group small">
+      <label>Colour</label>
+      <input type="color" data-bind="${prefix}.visual.color" value="${visual.color || "#6b8e23"}">
+    </div>
+  </div>`;
+}
+
+// ─── Desc Field (supports variant text arrays) ───
+function renderDescField(desc, prefix) {
+  const isArray = Array.isArray(desc);
+  let html = `<div class="mb-8">
+    <div class="toggle-row">
+      <label>Description</label>
+      <button class="btn btn-small" data-toggle-desc="${prefix}">${isArray ? "Convert to Simple" : "Convert to Conditional"}</button>
+    </div>`;
+
+  if (isArray) {
+    desc.forEach((entry, i) => {
+      html += `<div class="variant-text-entry">`;
+      if (entry.if) {
+        html += `<div class="mb-8"><label>Condition</label>`;
+        html += renderConditionBuilder(entry.if, `${prefix}_desc_${i}_if`);
+        html += `</div>`;
+      } else {
+        html += `<div class="tag mb-8">Default (no condition)</div>`;
+      }
+      html += `<textarea data-bind="${prefix}.desc[${i}].text">${escHtml(entry.text || "")}</textarea>`;
+      html += `<div class="mt-8 btn-group">`;
+      if (entry.if || i < desc.length - 1) {
+        html += `<button class="btn btn-small" data-add-desc-condition="${prefix}" data-index="${i}">Edit Condition</button>`;
+      }
+      html += `<button class="btn btn-small btn-danger" data-remove-desc-entry="${prefix}" data-index="${i}">Remove</button>`;
+      html += `</div></div>`;
+    });
+    html += `<button class="btn btn-small btn-success mt-8" data-add-desc-entry="${prefix}">+ Add Desc Entry</button>`;
+  } else {
+    html += `<textarea data-bind="${prefix}.desc">${escHtml(desc || "")}</textarea>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+// ─── Choices ───
+function renderChoices(choices, prefix, npcName) {
+  let html = "";
+  const keys = Object.keys(choices);
+
+  keys.forEach((key) => {
+    const c = choices[key];
+    const cPrefix = `${prefix}.choice_${key}`;
+    html += `<div class="choice-block">`;
+    html += `<div class="choice-header">
+      <div class="inline-flex">
+        <span class="choice-key-label">${key}</span>
+        <input type="text" data-bind="${cPrefix}.key" value="${escAttr(key)}" style="width:50px;" title="Choice key">
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-small btn-danger" data-remove-choice="${prefix}" data-key="${key}">Remove</button>
+      </div>
+    </div>`;
+
+    // Text (supports variant text)
+    const textIsArray = Array.isArray(c.text);
+    html += `<div class="form-group mb-8">
+      <div class="toggle-row">
+        <label>Button Text</label>
+        <button class="btn btn-small" data-toggle-choice-text="${cPrefix}">${textIsArray ? "Simple" : "Conditional"}</button>
+      </div>`;
+    if (textIsArray) {
+      c.text.forEach((entry, ti) => {
+        html += `<div class="variant-text-entry">`;
+        if (entry.if) {
+          html += `<label>Condition</label>`;
+          html += renderConditionBuilder(entry.if, `${cPrefix}_text_${ti}_if`);
+        } else {
+          html += `<div class="tag">Default</div>`;
+        }
+        html += `<input type="text" data-bind="${cPrefix}.text[${ti}].text" value="${escAttr(entry.text || "")}">`;
+        html += `<button class="btn btn-small btn-danger mt-8" data-remove-choice-text-entry="${cPrefix}" data-index="${ti}">Remove</button>`;
+        html += `</div>`;
+      });
+      html += `<button class="btn btn-small btn-success mt-8" data-add-choice-text-entry="${cPrefix}">+ Add Text Entry</button>`;
+    } else {
+      html += `<input type="text" data-bind="${cPrefix}.text" value="${escAttr(c.text || "")}">`;
+    }
+    html += `</div>`;
+
+    // Choice condition (if)
+    html += `<div class="mb-8"><div class="toggle-row"><label>Choice Condition (if)</label>
+      <button class="btn btn-small" data-toggle-choice-if="${cPrefix}">${c.if ? "Remove Condition" : "Add Condition"}</button>
+    </div>`;
+    if (c.if) {
+      html += renderConditionBuilder(c.if, `${cPrefix}_if`);
+      html += `<div class="toggle-row mt-8"><label>Show Locked</label>
+        <input type="checkbox" data-bind="${cPrefix}.showLocked" ${c.showLocked ? "checked" : ""}></div>`;
+    }
+    html += `</div>`;
+
+    // Effects (supports variant effects)
+    const effectsIsArray = Array.isArray(c.effects);
+    html += `<div class="mb-8"><div class="toggle-row"><label>Effects</label>
+      <button class="btn btn-small" data-toggle-choice-effects="${cPrefix}">${effectsIsArray ? "Simple" : "Conditional"}</button>
+    </div>`;
+    if (effectsIsArray) {
+      c.effects.forEach((eff, ei) => {
+        html += `<div class="variant-text-entry">`;
+        if (eff.if) {
+          html += `<label>Condition</label>`;
+          html += renderConditionBuilder(eff.if, `${cPrefix}_eff_${ei}_if`);
+        } else {
+          html += `<div class="tag">Default</div>`;
+        }
+        html += renderEffectsGrid(eff, `${cPrefix}.effects[${ei}]`);
+        html += `<button class="btn btn-small btn-danger mt-8" data-remove-choice-eff-entry="${cPrefix}" data-index="${ei}">Remove</button>`;
+        html += `</div>`;
+      });
+      html += `<button class="btn btn-small btn-success mt-8" data-add-choice-eff-entry="${cPrefix}">+ Add Effects Entry</button>`;
+    } else if (c.effects) {
+      html += renderEffectsGrid(c.effects, `${cPrefix}.effects`);
+    } else {
+      html += `<div class="tag">No effects (branch only)</div>`;
+    }
+    html += `</div>`;
+
+    // Branch (next)
+    html += `<div class="mt-8"><div class="toggle-row"><label>Branch (next)</label>
+      <button class="btn btn-small" data-toggle-branch="${cPrefix}">${c.next ? "Remove Branch" : "Add Branch"}</button>
+    </div>`;
+    if (c.next) {
+      html += renderBranch(c.next, `${cPrefix}.next`, 0);
+    }
+    html += `</div>`;
+
+    html += `</div>`; // close choice-block
   });
 
-  document.getElementById("btn-discard-draft").addEventListener("click", () => {
-    localStorage.removeItem(DRAFT_KEY);
-    document.getElementById("draft-banner").style.display = "none";
+  html += `<button class="btn btn-small btn-success mt-8" data-add-choice="${prefix}">+ Add Choice</button>`;
+  return html;
+}
+
+// ─── Effects Grid ───
+function renderEffectsGrid(effects, prefix) {
+  const stats = ["royalty", "populace", "kingdom", "power", "suspicion"];
+  let html = `<div class="effects-grid">`;
+  stats.forEach((s) => { html += `<label>${s.charAt(0).toUpperCase() + s.slice(1, 3)}</label>`; });
+  stats.forEach((s) => {
+    html += `<input type="number" data-bind="${prefix}.${s}" value="${effects[s] || 0}">`;
   });
+  html += `</div>`;
+  return html;
+}
 
-  // Toolbar
-  document.getElementById("btn-save").addEventListener("click", saveJson);
+// ─── Branch Rendering (recursive) ───
+function renderBranch(node, prefix, depth) {
+  let html = `<div class="branch-block">`;
 
-  document.getElementById("btn-validate").addEventListener("click", () => {
-    runValidation();
-    document.getElementById("warnings-body").style.display = "block";
-    document.getElementById("warnings-toggle-icon").textContent = "▲";
-  });
+  // Branch desc
+  const descIsArray = Array.isArray(node.desc);
+  html += `<div class="mb-8"><div class="toggle-row"><label>NPC Response</label>
+    <button class="btn btn-small" data-toggle-branch-desc="${prefix}">${descIsArray ? "Simple" : "Conditional"}</button>
+  </div>`;
+  if (descIsArray) {
+    node.desc.forEach((entry, i) => {
+      html += `<div class="variant-text-entry">`;
+      if (entry.if) {
+        html += `<label>Condition</label>`;
+        html += renderConditionBuilder(entry.if, `${prefix}_desc_${i}_if`);
+      } else {
+        html += `<div class="tag">Default</div>`;
+      }
+      html += `<textarea data-bind="${prefix}.desc[${i}].text">${escHtml(entry.text || "")}</textarea>`;
+      html += `<button class="btn btn-small btn-danger mt-8" data-remove-branch-desc-entry="${prefix}" data-index="${i}">Remove</button>`;
+      html += `</div>`;
+    });
+    html += `<button class="btn btn-small btn-success mt-8" data-add-branch-desc-entry="${prefix}">+ Add Desc Entry</button>`;
+  } else {
+    html += `<textarea data-bind="${prefix}.desc">${escHtml(node.desc || "")}</textarea>`;
+  }
+  html += `</div>`;
 
-  document.getElementById("btn-preview-toggle").addEventListener("click", () => {
-    const panel = document.getElementById("json-preview-panel");
-    panel.classList.toggle("hidden");
-    refreshJsonPreview();
-  });
+  // Branch choices
+  if (node.choices) {
+    const bKeys = Object.keys(node.choices);
+    bKeys.forEach((key) => {
+      const bc = node.choices[key];
+      const bcPrefix = `${prefix}.choice_${key}`;
+      html += `<div class="choice-block">`;
+      html += `<div class="choice-header">
+        <div class="inline-flex">
+          <span class="choice-key-label">${key}</span>
+          <input type="text" data-bind="${bcPrefix}.key" value="${escAttr(key)}" style="width:50px;">
+        </div>
+        <button class="btn btn-small btn-danger" data-remove-choice="${prefix}" data-key="${key}">Remove</button>
+      </div>`;
 
-  document.getElementById("btn-load-server").addEventListener("click", async () => {
-    try {
-      const res = await fetch("dialogue.json");
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const text = await res.text();
-      loadData(text);
-    } catch (e) {
-      alert("Could not load dialogue.json from server: " + e.message);
+      // Text
+      html += `<div class="form-group mb-8"><label>Text</label>
+        <input type="text" data-bind="${bcPrefix}.text" value="${escAttr(typeof bc.text === 'string' ? bc.text : '')}">
+      </div>`;
+
+      // Effects
+      if (bc.effects) {
+        html += renderEffectsGrid(bc.effects, `${bcPrefix}.effects`);
+      } else {
+        html += `<button class="btn btn-small mt-8" data-add-branch-effects="${bcPrefix}">+ Add Effects</button>`;
+      }
+
+      // Nested branch
+      html += `<div class="mt-8"><div class="toggle-row"><label>Nested Branch</label>
+        <button class="btn btn-small" data-toggle-branch="${bcPrefix}">${bc.next ? "Remove" : "Add"}</button>
+      </div>`;
+      if (bc.next) {
+        html += renderBranch(bc.next, `${bcPrefix}.next`, depth + 1);
+      }
+      html += `</div>`;
+
+      html += `</div>`;
+    });
+  }
+
+  html += `<button class="btn btn-small btn-success mt-8" data-add-choice="${prefix}">+ Add Choice</button>`;
+  html += `</div>`;
+  return html;
+}
+
+// ─── Condition Builder ───
+function renderConditionBuilder(cond, prefix) {
+  if (!cond) {
+    return `<div class="condition-builder" data-cond-prefix="${prefix}">
+      <div class="condition-row"><span style="color:#888;">No condition</span>
+        <button class="btn btn-small" data-set-condition="${prefix}" data-type="stat">+ Stat</button>
+        <button class="btn btn-small" data-set-condition="${prefix}" data-type="chose">+ Chose</button>
+        <button class="btn btn-small" data-set-condition="${prefix}" data-type="visits">+ Visits</button>
+        <button class="btn btn-small" data-set-condition="${prefix}" data-type="day">+ Day</button>
+        <button class="btn btn-small" data-set-condition="${prefix}" data-type="and">+ And</button>
+        <button class="btn btn-small" data-set-condition="${prefix}" data-type="or">+ Or</button>
+        <button class="btn btn-small" data-set-condition="${prefix}" data-type="not">+ Not</button>
+      </div>
+    </div>`;
+  }
+
+  let html = `<div class="condition-builder" data-cond-prefix="${prefix}">`;
+
+  if (cond.and) {
+    html += `<div class="condition-row"><strong>AND</strong>
+      <button class="btn btn-small btn-danger" data-clear-condition="${prefix}">✕</button></div>`;
+    html += `<div class="condition-group">`;
+    cond.and.forEach((sub, i) => {
+      html += renderConditionBuilder(sub, `${prefix}_and_${i}`);
+    });
+    html += `<button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="and">+ Add</button>`;
+    html += `</div>`;
+  } else if (cond.or) {
+    html += `<div class="condition-row"><strong>OR</strong>
+      <button class="btn btn-small btn-danger" data-clear-condition="${prefix}">✕</button></div>`;
+    html += `<div class="condition-group">`;
+    cond.or.forEach((sub, i) => {
+      html += renderConditionBuilder(sub, `${prefix}_or_${i}`);
+    });
+    html += `<button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="or">+ Add</button>`;
+    html += `</div>`;
+  } else if (cond.not) {
+    html += `<div class="condition-row"><strong>NOT</strong>
+      <button class="btn btn-small btn-danger" data-clear-condition="${prefix}">✕</button></div>`;
+    html += `<div class="condition-group">`;
+    html += renderConditionBuilder(cond.not, `${prefix}_not`);
+    html += `</div>`;
+  } else if (cond.stat !== undefined) {
+    html += `<div class="condition-row">
+      <select data-bind="${prefix}.stat">
+        ${["royalty","populace","kingdom","power","suspicion"].map(s => `<option value="${s}" ${cond.stat===s?"selected":""}>${s}</option>`).join("")}
+      </select>
+      <select data-bind="${prefix}.op">
+        ${[">","<",">=","<=","==","!="].map(o => `<option value="${o}" ${cond.op===o?"selected":""}>${o}</option>`).join("")}
+      </select>
+      <input type="number" data-bind="${prefix}.value" value="${cond.value || 0}" style="width:60px;">
+      <button class="btn btn-small btn-danger" data-clear-condition="${prefix}">✕</button>
+    </div>`;
+  } else if (cond.chose) {
+    html += `<div class="condition-row">
+      <label>NPC</label><input type="text" data-bind="${prefix}.chose.npc" value="${escAttr(cond.chose.npc || "")}" style="width:100px;">
+      <label>Choice</label><input type="text" data-bind="${prefix}.chose.choice" value="${escAttr(cond.chose.choice || "")}" style="width:50px;">
+      <label>Last only</label><input type="checkbox" data-bind="${prefix}.chose.last" ${cond.chose.last ? "checked" : ""}>
+      <button class="btn btn-small btn-danger" data-clear-condition="${prefix}">✕</button>
+    </div>`;
+  } else if (cond.visits !== undefined) {
+    const isObj = typeof cond.visits === "object";
+    html += `<div class="condition-row">
+      <label>Visits</label>
+      <select data-bind="${prefix}.visits.op">
+        ${[">","<",">=","<=","==","!="].map(o => `<option value="${o}" ${isObj && cond.visits.op===o?"selected":""}>${o}</option>`).join("")}
+      </select>
+      <input type="number" data-bind="${prefix}.visits.value" value="${isObj ? cond.visits.value : cond.visits}" style="width:60px;">
+      <button class="btn btn-small btn-danger" data-clear-condition="${prefix}">✕</button>
+    </div>`;
+  } else if (cond.day !== undefined) {
+    const isObj = typeof cond.day === "object";
+    html += `<div class="condition-row">
+      <label>Day</label>
+      <select data-bind="${prefix}.day.op">
+        ${[">","<",">=","<=","==","!="].map(o => `<option value="${o}" ${isObj && cond.day.op===o?"selected":""}>${o}</option>`).join("")}
+      </select>
+      <input type="number" data-bind="${prefix}.day.value" value="${isObj ? cond.day.value : cond.day}" style="width:60px;">
+      <button class="btn btn-small btn-danger" data-clear-condition="${prefix}">✕</button>
+    </div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+// ─── Helpers ───
+function escAttr(s) { return String(s).replace(/"/g, "&quot;").replace(/</g, "&lt;"); }
+function escHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+// ─── Data Path Resolution ───
+// Resolves a data-bind prefix path to { parent, key } in gameData
+function resolveDataPath(bindPath) {
+  // Translate our prefix notation to actual gameData paths
+  // Prefixes: "npc" = current simple NPC, "var_N" = variant N
+  const npc = gameData.npcs[activeNpc];
+  if (!npc) return null;
+
+  let parts = bindPath.split(".");
+  let root;
+  let startIdx;
+
+  if (parts[0].startsWith("var_")) {
+    const vIdx = parseInt(parts[0].split("_")[1]);
+    root = npc.variants[vIdx];
+    startIdx = 1;
+  } else if (parts[0] === "npc") {
+    root = npc;
+    startIdx = 1;
+  } else {
+    return null;
+  }
+
+  let current = root;
+  for (let i = startIdx; i < parts.length - 1; i++) {
+    current = resolvePathSegment(current, parts[i]);
+    if (current == null) return null;
+  }
+
+  const lastPart = parts[parts.length - 1];
+  const arrMatch = lastPart.match(/^(.+)\[(\d+)\]$/);
+  if (arrMatch) {
+    const arr = current[arrMatch[1]];
+    return { parent: arr, key: parseInt(arrMatch[2]) };
+  }
+
+  return { parent: current, key: lastPart };
+}
+
+function resolvePathSegment(obj, segment) {
+  // Handle choice_X notation
+  const choiceMatch = segment.match(/^choice_(.+)$/);
+  if (choiceMatch) {
+    return obj.choices ? obj.choices[choiceMatch[1]] : null;
+  }
+  // Handle array index notation
+  const arrMatch = segment.match(/^(.+)\[(\d+)\]$/);
+  if (arrMatch) {
+    const arr = obj[arrMatch[1]];
+    return arr ? arr[parseInt(arrMatch[2])] : null;
+  }
+  return obj[segment];
+}
+
+// ─── Get choices object from a prefix path ───
+function getChoicesFromPrefix(prefix) {
+  const npc = gameData.npcs[activeNpc];
+  if (!npc) return null;
+
+  const parts = prefix.split(".");
+  let root;
+  let startIdx;
+
+  if (parts[0].startsWith("var_")) {
+    const vIdx = parseInt(parts[0].split("_")[1]);
+    root = npc.variants[vIdx];
+    startIdx = 1;
+  } else if (parts[0] === "npc") {
+    root = npc;
+    startIdx = 1;
+  } else {
+    return null;
+  }
+
+  let current = root;
+  for (let i = startIdx; i < parts.length; i++) {
+    current = resolvePathSegment(current, parts[i]);
+    if (current == null) return null;
+  }
+
+  return current;
+}
+
+// ─── Get the object that owns a condition from its prefix ───
+function resolveConditionTarget(prefix) {
+  // prefix like "var_0_if", "npc.choice_A_if", "var_0.choice_A.next_desc_0_if"
+  // We need to find the parent object and the condition key path
+  const npc = gameData.npcs[activeNpc];
+  if (!npc) return null;
+
+  const parts = prefix.split("_");
+
+  // For variant-level conditions: "var_0_if"
+  if (parts[0] === "var" && parts[parts.length - 1] === "if") {
+    const vIdx = parseInt(parts[1]);
+    return { parent: npc.variants[vIdx], key: "if" };
+  }
+
+  // For more complex paths, we need to parse the dot-separated prefix
+  // The condition prefix is built from the rendering prefix + "_if" or similar
+  // Let's use a different approach - parse from the data-bind style prefix
+  return null;
+}
+
+// ─── Bind All Inputs ───
+function bindAllEditorInputs(npcName) {
+  // Simple data-bind inputs
+  mainPanel.querySelectorAll("[data-bind]").forEach((el) => {
+    const handler = () => {
+      const path = resolveDataPath(el.dataset.bind);
+      if (!path) return;
+      let val;
+      if (el.type === "checkbox") val = el.checked;
+      else if (el.type === "number") val = parseInt(el.value) || 0;
+      else val = el.value;
+
+      // Handle choice key renames
+      if (el.dataset.bind.endsWith(".key")) {
+        handleChoiceKeyRename(el.dataset.bind, val);
+        return;
+      }
+
+      // Handle condition binds
+      if (isConditionBind(el.dataset.bind)) {
+        setConditionValue(el.dataset.bind, val);
+        return;
+      }
+
+      path.parent[path.key] = val;
+    };
+    el.addEventListener("change", handler);
+    if (el.tagName === "TEXTAREA" || el.type === "text") {
+      el.addEventListener("input", handler);
     }
   });
 
-  document.getElementById("file-input").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => loadData(ev.target.result);
-    reader.readAsText(file);
-    e.target.value = "";
+  // Delete variant button
+  const delVarBtn = $("#deleteVariantBtn");
+  if (delVarBtn) {
+    delVarBtn.addEventListener("click", () => {
+      const npc = gameData.npcs[npcName];
+      if (!npc.variants || npc.variants.length <= 1) {
+        toast("Cannot delete the only variant");
+        return;
+      }
+      npc.variants.splice(activeVariantIndex, 1);
+      activeVariantIndex = Math.min(activeVariantIndex, npc.variants.length - 1);
+      renderNpcPanel(npcName);
+    });
+  }
+
+  // Toggle desc simple/conditional
+  mainPanel.querySelectorAll("[data-toggle-desc]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const prefix = btn.dataset.toggleDesc;
+      const target = getTargetFromPrefix(prefix);
+      if (!target) return;
+      if (Array.isArray(target.desc)) {
+        target.desc = target.desc[0]?.text || "";
+      } else {
+        target.desc = [{ text: target.desc || "" }];
+      }
+      renderNpcPanel(npcName);
+    });
   });
 
-  document.getElementById("btn-add-npc").addEventListener("click", () => {
-    let name = prompt("NPC name:");
-    if (!name) return;
-    name = name.trim();
-    if (!name) return;
-    if (DATA.npcs[name]) { alert("An NPC with that name already exists!"); return; }
-    DATA.npcs[name] = {
-      desc: "",
-      visual: { portrait: "images/default.png", color: "#888888" },
-      choices: {}
-    };
-    scheduleSave();
-    renderNpcList();
-    selectNpc(name);
+  // Add/remove desc entries
+  mainPanel.querySelectorAll("[data-add-desc-entry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = getTargetFromPrefix(btn.dataset.addDescEntry);
+      if (target && Array.isArray(target.desc)) {
+        target.desc.push({ text: "" });
+        renderNpcPanel(npcName);
+      }
+    });
   });
 
-  document.getElementById("btn-nav-schedule").addEventListener("click", () => {
-    currentView = "schedule";
-    renderNpcList();
-    renderScheduleEditor();
-    document.getElementById("btn-nav-schedule").classList.add("active");
-    document.getElementById("btn-nav-config").classList.remove("active");
+  mainPanel.querySelectorAll("[data-remove-desc-entry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = getTargetFromPrefix(btn.dataset.removeDescEntry);
+      const idx = parseInt(btn.dataset.index);
+      if (target && Array.isArray(target.desc)) {
+        target.desc.splice(idx, 1);
+        if (target.desc.length === 0) target.desc = "";
+        renderNpcPanel(npcName);
+      }
+    });
   });
 
-  document.getElementById("btn-nav-config").addEventListener("click", () => {
-    currentView = "config";
-    renderNpcList();
-    renderConfigEditor();
-    document.getElementById("btn-nav-config").classList.add("active");
-    document.getElementById("btn-nav-schedule").classList.remove("active");
+  // Toggle choice text
+  mainPanel.querySelectorAll("[data-toggle-choice-text]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.toggleChoiceText);
+      if (!choice) return;
+      if (Array.isArray(choice.text)) {
+        choice.text = choice.text[0]?.text || "";
+      } else {
+        choice.text = [{ text: choice.text || "" }];
+      }
+      renderNpcPanel(npcName);
+    });
   });
 
-  // Warnings panel collapse toggle
-  document.getElementById("warnings-header").addEventListener("click", () => {
-    const body = document.getElementById("warnings-body");
-    const icon = document.getElementById("warnings-toggle-icon");
-    const isHidden = body.style.display === "none";
-    body.style.display = isHidden ? "block" : "none";
-    icon.textContent = isHidden ? "▲" : "▼";
+  // Add/remove choice text entries
+  mainPanel.querySelectorAll("[data-add-choice-text-entry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.addChoiceTextEntry);
+      if (choice && Array.isArray(choice.text)) {
+        choice.text.push({ text: "" });
+        renderNpcPanel(npcName);
+      }
+    });
   });
 
-  // Initial state
-  renderNpcList();
-  displayWarnings([{ msg: "Click Validate to check your data, or load a dialogue.json to get started.", type: "warn" }]);
-});
+  mainPanel.querySelectorAll("[data-remove-choice-text-entry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.removeChoiceTextEntry);
+      const idx = parseInt(btn.dataset.index);
+      if (choice && Array.isArray(choice.text)) {
+        choice.text.splice(idx, 1);
+        if (choice.text.length === 0) choice.text = "";
+        renderNpcPanel(npcName);
+      }
+    });
+  });
+
+  // Toggle choice condition
+  mainPanel.querySelectorAll("[data-toggle-choice-if]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.toggleChoiceIf);
+      if (!choice) return;
+      if (choice.if) {
+        delete choice.if;
+        delete choice.showLocked;
+      } else {
+        choice.if = { stat: "power", op: ">=", value: 30 };
+      }
+      renderNpcPanel(npcName);
+    });
+  });
+
+  // Toggle choice effects simple/conditional
+  mainPanel.querySelectorAll("[data-toggle-choice-effects]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.toggleChoiceEffects);
+      if (!choice) return;
+      if (Array.isArray(choice.effects)) {
+        choice.effects = choice.effects[0] || { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 };
+        delete choice.effects.if;
+      } else {
+        choice.effects = [choice.effects || { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 }];
+      }
+      renderNpcPanel(npcName);
+    });
+  });
+
+  // Add/remove choice effect entries
+  mainPanel.querySelectorAll("[data-add-choice-eff-entry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.addChoiceEffEntry);
+      if (choice && Array.isArray(choice.effects)) {
+        choice.effects.push({ royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 });
+        renderNpcPanel(npcName);
+      }
+    });
+  });
+
+  mainPanel.querySelectorAll("[data-remove-choice-eff-entry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.removeChoiceEffEntry);
+      const idx = parseInt(btn.dataset.index);
+      if (choice && Array.isArray(choice.effects)) {
+        choice.effects.splice(idx, 1);
+        if (choice.effects.length === 0) choice.effects = { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 };
+        renderNpcPanel(npcName);
+      }
+    });
+  });
+
+  // Toggle branch
+  mainPanel.querySelectorAll("[data-toggle-branch]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.toggleBranch);
+      if (!choice) return;
+      if (choice.next) {
+        delete choice.next;
+      } else {
+        choice.next = {
+          desc: "",
+          choices: {
+            A: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } },
+            B: { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } }
+          }
+        };
+      }
+      renderNpcPanel(npcName);
+    });
+  });
+
+  // Toggle branch desc
+  mainPanel.querySelectorAll("[data-toggle-branch-desc]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const node = getNodeFromPrefix(btn.dataset.toggleBranchDesc);
+      if (!node) return;
+      if (Array.isArray(node.desc)) {
+        node.desc = node.desc[0]?.text || "";
+      } else {
+        node.desc = [{ text: node.desc || "" }];
+      }
+      renderNpcPanel(npcName);
+    });
+  });
+
+  // Add/remove branch desc entries
+  mainPanel.querySelectorAll("[data-add-branch-desc-entry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const node = getNodeFromPrefix(btn.dataset.addBranchDescEntry);
+      if (node && Array.isArray(node.desc)) {
+        node.desc.push({ text: "" });
+        renderNpcPanel(npcName);
+      }
+    });
+  });
+
+  mainPanel.querySelectorAll("[data-remove-branch-desc-entry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const node = getNodeFromPrefix(btn.dataset.removeBranchDescEntry);
+      const idx = parseInt(btn.dataset.index);
+      if (node && Array.isArray(node.desc)) {
+        node.desc.splice(idx, 1);
+        if (node.desc.length === 0) node.desc = "";
+        renderNpcPanel(npcName);
+      }
+    });
+  });
+
+  // Add branch effects
+  mainPanel.querySelectorAll("[data-add-branch-effects]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = getChoiceFromCPrefix(btn.dataset.addBranchEffects);
+      if (choice) {
+        choice.effects = { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 };
+        renderNpcPanel(npcName);
+      }
+    });
+  });
+
+  // Add choice
+  mainPanel.querySelectorAll("[data-add-choice]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const container = getNodeFromPrefix(btn.dataset.addChoice);
+      if (!container || !container.choices) {
+        // Might be a branch node accessed via prefix ending in .next
+        const node = getNodeFromPrefix(btn.dataset.addChoice);
+        if (node) {
+          if (!node.choices) node.choices = {};
+          const existing = Object.keys(node.choices);
+          const nextKey = getNextChoiceKey(existing);
+          node.choices[nextKey] = { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } };
+          renderNpcPanel(npcName);
+        }
+        return;
+      }
+      const existing = Object.keys(container.choices);
+      const nextKey = getNextChoiceKey(existing);
+      container.choices[nextKey] = { text: "", effects: { royalty: 0, populace: 0, kingdom: 0, power: 0, suspicion: 0 } };
+      renderNpcPanel(npcName);
+    });
+  });
+
+  // Remove choice
+  mainPanel.querySelectorAll("[data-remove-choice]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const container = getNodeFromPrefix(btn.dataset.removeChoice);
+      const key = btn.dataset.key;
+      if (container && container.choices && container.choices[key]) {
+        delete container.choices[key];
+        renderNpcPanel(npcName);
+      }
+    });
+  });
+
+  // Condition: set type
+  mainPanel.querySelectorAll("[data-set-condition]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const prefix = btn.dataset.setCondition;
+      const type = btn.dataset.type;
+      setConditionType(prefix, type);
+      renderNpcPanel(npcName);
+    });
+  });
+
+  // Condition: clear
+  mainPanel.querySelectorAll("[data-clear-condition]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      clearCondition(btn.dataset.clearCondition);
+      renderNpcPanel(npcName);
+    });
+  });
+
+  // Condition: add sub-condition to and/or
+  mainPanel.querySelectorAll("[data-add-sub-condition]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const prefix = btn.dataset.addSubCondition;
+      const combinator = btn.dataset.combinator;
+      addSubCondition(prefix, combinator);
+      renderNpcPanel(npcName);
+    });
+  });
+
+  // Add desc condition
+  mainPanel.querySelectorAll("[data-add-desc-condition]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = getTargetFromPrefix(btn.dataset.addDescCondition);
+      const idx = parseInt(btn.dataset.index);
+      if (target && Array.isArray(target.desc) && target.desc[idx]) {
+        if (!target.desc[idx].if) {
+          target.desc[idx].if = { stat: "suspicion", op: ">", value: 50 };
+        }
+        renderNpcPanel(npcName);
+      }
+    });
+  });
+}
+
+// ─── Prefix → Object Resolution Helpers ───
+function getTargetFromPrefix(prefix) {
+  const npc = gameData.npcs[activeNpc];
+  if (!npc) return null;
+
+  if (prefix === "npc") return npc;
+  if (prefix.startsWith("var_")) {
+    const vIdx = parseInt(prefix.split("_")[1]);
+    return npc.variants ? npc.variants[vIdx] : null;
+  }
+  return null;
+}
+
+function getChoiceFromCPrefix(cPrefix) {
+  // cPrefix like "npc.choice_A" or "var_0.choice_A" or "var_0.choice_A.next.choice_B"
+  const npc = gameData.npcs[activeNpc];
+  if (!npc) return null;
+
+  const parts = cPrefix.split(".");
+  let current;
+  let startIdx;
+
+  if (parts[0] === "npc") {
+    current = npc;
+    startIdx = 1;
+  } else if (parts[0].startsWith("var_")) {
+    const vIdx = parseInt(parts[0].split("_")[1]);
+    current = npc.variants ? npc.variants[vIdx] : null;
+    startIdx = 1;
+  } else {
+    return null;
+  }
+
+  for (let i = startIdx; i < parts.length; i++) {
+    if (!current) return null;
+    current = resolvePathSegment(current, parts[i]);
+  }
+
+  return current;
+}
+
+function getNodeFromPrefix(prefix) {
+  // Similar to getChoiceFromCPrefix but returns the node (which has .choices, .desc)
+  const npc = gameData.npcs[activeNpc];
+  if (!npc) return null;
+
+  const parts = prefix.split(".");
+  let current;
+  let startIdx;
+
+  if (parts[0] === "npc") {
+    current = npc;
+    startIdx = 1;
+  } else if (parts[0].startsWith("var_")) {
+    const vIdx = parseInt(parts[0].split("_")[1]);
+    current = npc.variants ? npc.variants[vIdx] : null;
+    startIdx = 1;
+  } else {
+    return null;
+  }
+
+  for (let i = startIdx; i < parts.length; i++) {
+    if (!current) return null;
+    current = resolvePathSegment(current, parts[i]);
+  }
+
+  return current;
+}
+
+function getNextChoiceKey(existingKeys) {
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (const l of letters) {
+    if (!existingKeys.includes(l)) return l;
+  }
+  return "X" + existingKeys.length;
+}
+
+// ─── Choice Key Rename ───
+function handleChoiceKeyRename(bindPath, newKey) {
+  // bindPath like "npc.choice_A.key" or "var_0.choice_B.key"
+  const parts = bindPath.split(".");
+  const choicePart = parts[parts.length - 2]; // "choice_A"
+  const oldKey = choicePart.replace("choice_", "");
+
+  // Get the parent that has .choices
+  const parentPrefix = parts.slice(0, -2).join(".");
+  const parent = getNodeFromPrefix(parentPrefix);
+  if (!parent || !parent.choices || !parent.choices[oldKey]) return;
+  if (newKey === oldKey) return;
+  if (parent.choices[newKey]) { toast("Key already exists"); return; }
+
+  // Rebuild choices preserving order
+  const newChoices = {};
+  for (const k of Object.keys(parent.choices)) {
+    if (k === oldKey) newChoices[newKey] = parent.choices[k];
+    else newChoices[k] = parent.choices[k];
+  }
+  parent.choices = newChoices;
+  renderNpcPanel(activeNpc);
+}
+
+// ─── Condition Data Manipulation ───
+function isConditionBind(bindPath) {
+  // Check if this bind path targets a condition field
+  return bindPath.includes("_if.") || bindPath.includes(".chose.") ||
+         bindPath.includes(".visits.") || bindPath.includes(".day.");
+}
+
+function setConditionValue(bindPath, val) {
+  // Parse the condition bind path and set the value
+  // This is complex because conditions are nested
+  const condInfo = parseConditionBindPath(bindPath);
+  if (!condInfo) return;
+  condInfo.parent[condInfo.key] = val;
+}
+
+function parseConditionBindPath(bindPath) {
+  // Condition binds look like: "var_0_if.stat", "var_0_if.op", "var_0_if.value"
+  // or "npc.choice_A_if.stat", "var_0.choice_A_if.chose.npc"
+  // We need to find the condition object and the key within it
+
+  const npc = gameData.npcs[activeNpc];
+  if (!npc) return null;
+
+  // Split on the _if boundary
+  const ifIdx = bindPath.indexOf("_if.");
+  if (ifIdx === -1) return null;
+
+  const ownerPrefix = bindPath.substring(0, ifIdx);
+  const condPath = bindPath.substring(ifIdx + 4); // after "_if."
+
+  // Get the owner object
+  let owner = getConditionOwner(ownerPrefix);
+  if (!owner) return null;
+
+  let cond = owner.if;
+  if (!cond) return null;
+
+  // Navigate the condition path
+  const parts = condPath.split(".");
+  let current = cond;
+  for (let i = 0; i < parts.length - 1; i++) {
+    current = current[parts[i]];
+    if (!current) return null;
+  }
+
+  return { parent: current, key: parts[parts.length - 1] };
+}
+
+function getConditionOwner(ownerPrefix) {
+  const npc = gameData.npcs[activeNpc];
+  if (!npc) return null;
+
+  // Handle variant-level conditions: "var_0"
+  if (/^var_\d+$/.test(ownerPrefix)) {
+    const vIdx = parseInt(ownerPrefix.split("_")[1]);
+    return npc.variants ? npc.variants[vIdx] : null;
+  }
+
+  // Handle choice-level conditions: "npc.choice_A" or "var_0.choice_A"
+  // Handle desc-level conditions: "var_0_desc_0" or "npc_desc_0"
+  // Handle nested: "var_0.choice_A.next.choice_B"
+
+  // Check for desc conditions
+  const descMatch = ownerPrefix.match(/^(.+)_desc_(\d+)$/);
+  if (descMatch) {
+    const target = getTargetFromPrefix(descMatch[1]) || getNodeFromPrefix(descMatch[1]);
+    if (target && Array.isArray(target.desc)) {
+      return target.desc[parseInt(descMatch[2])];
+    }
+    return null;
+  }
+
+  // Check for effect conditions
+  const effMatch = ownerPrefix.match(/^(.+)_eff_(\d+)$/);
+  if (effMatch) {
+    const choice = getChoiceFromCPrefix(effMatch[1]);
+    if (choice && Array.isArray(choice.effects)) {
+      return choice.effects[parseInt(effMatch[2])];
+    }
+    return null;
+  }
+
+  // Check for choice text conditions
+  const textMatch = ownerPrefix.match(/^(.+)_text_(\d+)$/);
+  if (textMatch) {
+    const choice = getChoiceFromCPrefix(textMatch[1]);
+    if (choice && Array.isArray(choice.text)) {
+      return choice.text[parseInt(textMatch[2])];
+    }
+    return null;
+  }
+
+  // Otherwise it's a choice or node
+  return getChoiceFromCPrefix(ownerPrefix);
+}
+
+function setConditionType(prefix, type) {
+  const owner = getConditionOwner(prefix.replace(/_if$/, ""));
+  if (!owner) return;
+
+  switch (type) {
+    case "stat":
+      owner.if = { stat: "power", op: ">=", value: 30 };
+      break;
+    case "chose":
+      owner.if = { chose: { npc: "", choice: "A" } };
+      break;
+    case "visits":
+      owner.if = { visits: { op: "==", value: 0 } };
+      break;
+    case "day":
+      owner.if = { day: { op: "==", value: 1 } };
+      break;
+    case "and":
+      owner.if = { and: [{ stat: "power", op: ">=", value: 30 }] };
+      break;
+    case "or":
+      owner.if = { or: [{ stat: "power", op: ">=", value: 30 }] };
+      break;
+    case "not":
+      owner.if = { not: { stat: "suspicion", op: ">", value: 70 } };
+      break;
+  }
+}
+
+function clearCondition(prefix) {
+  // Find the condition and its parent, then remove it
+  // prefix like "var_0_if", "var_0_if_and_0", "npc.choice_A_if"
+
+  // Check if this is a sub-condition (inside and/or/not)
+  const andMatch = prefix.match(/^(.+)_and_(\d+)$/);
+  if (andMatch) {
+    const parentOwner = getConditionOwner(andMatch[1].replace(/_if$/, ""));
+    if (parentOwner && parentOwner.if && parentOwner.if.and) {
+      parentOwner.if.and.splice(parseInt(andMatch[2]), 1);
+      if (parentOwner.if.and.length === 0) delete parentOwner.if;
+    }
+    return;
+  }
+
+  const orMatch = prefix.match(/^(.+)_or_(\d+)$/);
+  if (orMatch) {
+    const parentOwner = getConditionOwner(orMatch[1].replace(/_if$/, ""));
+    if (parentOwner && parentOwner.if && parentOwner.if.or) {
+      parentOwner.if.or.splice(parseInt(orMatch[2]), 1);
+      if (parentOwner.if.or.length === 0) delete parentOwner.if;
+    }
+    return;
+  }
+
+  const notMatch = prefix.match(/^(.+)_not$/);
+  if (notMatch) {
+    const parentOwner = getConditionOwner(notMatch[1].replace(/_if$/, ""));
+    if (parentOwner && parentOwner.if) delete parentOwner.if.not;
+    return;
+  }
+
+  // Top-level condition
+  const owner = getConditionOwner(prefix.replace(/_if$/, ""));
+  if (owner) delete owner.if;
+}
+
+function addSubCondition(prefix, combinator) {
+  const owner = getConditionOwner(prefix.replace(/_if$/, ""));
+  if (!owner || !owner.if) return;
+
+  if (combinator === "and" && owner.if.and) {
+    owner.if.and.push({ stat: "power", op: ">=", value: 30 });
+  } else if (combinator === "or" && owner.if.or) {
+    owner.if.or.push({ stat: "power", op: ">=", value: 30 });
+  }
+}
