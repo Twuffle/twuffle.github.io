@@ -225,6 +225,8 @@ function renderSchedulePanel() {
 
 // ─── NPC Panel ───
 function renderNpcPanel(name) {
+  const scrollTop = mainPanel.scrollTop;
+
   if (!name || !gameData.npcs[name]) {
     mainPanel.innerHTML = `<div class="empty-state">NPC not found.</div>`;
     return;
@@ -300,12 +302,14 @@ function renderNpcPanel(name) {
   }
 
   bindAllEditorInputs(name);
+  requestAnimationFrame(() => { mainPanel.scrollTop = scrollTop; });
 }
 
 function renameNpc(oldName) {
   let newName = prompt("New name:", oldName);
   if (!newName || !newName.trim() || newName.trim() === oldName) return;
   newName = newName.trim();
+  if (/["'<>]/.test(newName)) { toast("Name contains invalid characters"); return; }
   if (gameData.npcs[newName]) { toast("Name already taken"); return; }
 
   // Rebuild npcs preserving order
@@ -588,17 +592,70 @@ function renderBranch(node, prefix, depth) {
         <button class="btn btn-small btn-danger" data-remove-choice="${prefix}" data-key="${key}">Remove</button>
       </div>`;
 
-      // Text
-      html += `<div class="form-group mb-8"><label>Text</label>
-        <input type="text" data-bind="${bcPrefix}.text" value="${escAttr(typeof bc.text === 'string' ? bc.text : '')}">
-      </div>`;
+      // Text (supports variant text arrays)
+      const textIsArray = Array.isArray(bc.text);
+      html += `<div class="form-group mb-8">
+        <div class="toggle-row">
+          <label>Button Text</label>
+          <button class="btn btn-small" data-toggle-choice-text="${bcPrefix}">${textIsArray ? "Simple" : "Conditional"}</button>
+        </div>`;
+      if (textIsArray) {
+        bc.text.forEach((entry, ti) => {
+          html += `<div class="variant-text-entry">`;
+          if (entry.if) {
+            html += `<label>Condition</label>`;
+            html += renderConditionBuilder(entry.if, `${bcPrefix}_text_${ti}_if`);
+          } else {
+            html += `<div class="tag">Default</div>`;
+          }
+          html += `<input type="text" data-bind="${bcPrefix}.text[${ti}].text" value="${escAttr(entry.text || "")}">`;
+          html += `<button class="btn btn-small btn-danger mt-8" data-remove-choice-text-entry="${bcPrefix}" data-index="${ti}">Remove</button>`;
+          html += `</div>`;
+        });
+        html += `<button class="btn btn-small btn-success mt-8" data-add-choice-text-entry="${bcPrefix}">+ Add Text Entry</button>`;
+      } else {
+        html += `<input type="text" data-bind="${bcPrefix}.text" value="${escAttr(typeof bc.text === 'string' ? bc.text : '')}">`;
+      }
+      html += `</div>`;
 
-      // Effects
+      // Choice condition (if)
+      html += `<div class="mb-8"><div class="toggle-row"><label>Choice Condition (if)</label>
+        <button class="btn btn-small" data-toggle-choice-if="${bcPrefix}">${bc.if ? "Remove Condition" : "Add Condition"}</button>
+      </div>`;
+      if (bc.if) {
+        html += renderConditionBuilder(bc.if, `${bcPrefix}_if`);
+        html += `<div class="toggle-row mt-8"><label>Show Locked</label>
+          <input type="checkbox" data-bind="${bcPrefix}.showLocked" ${bc.showLocked ? "checked" : ""}></div>`;
+      }
+      html += `</div>`;
+
+      // Effects (supports variant effects arrays)
+      const effectsIsArray = Array.isArray(bc.effects);
+      html += `<div class="mb-8"><div class="toggle-row"><label>Effects</label>`;
       if (bc.effects) {
+        html += `<button class="btn btn-small" data-toggle-choice-effects="${bcPrefix}">${effectsIsArray ? "Simple" : "Conditional"}</button>`;
+      }
+      html += `</div>`;
+      if (effectsIsArray) {
+        bc.effects.forEach((eff, ei) => {
+          html += `<div class="variant-text-entry">`;
+          if (eff.if) {
+            html += `<label>Condition</label>`;
+            html += renderConditionBuilder(eff.if, `${bcPrefix}_eff_${ei}_if`);
+          } else {
+            html += `<div class="tag">Default</div>`;
+          }
+          html += renderEffectsGrid(eff, `${bcPrefix}.effects[${ei}]`);
+          html += `<button class="btn btn-small btn-danger mt-8" data-remove-choice-eff-entry="${bcPrefix}" data-index="${ei}">Remove</button>`;
+          html += `</div>`;
+        });
+        html += `<button class="btn btn-small btn-success mt-8" data-add-choice-eff-entry="${bcPrefix}">+ Add Effects Entry</button>`;
+      } else if (bc.effects) {
         html += renderEffectsGrid(bc.effects, `${bcPrefix}.effects`);
       } else {
         html += `<button class="btn btn-small mt-8" data-add-branch-effects="${bcPrefix}">+ Add Effects</button>`;
       }
+      html += `</div>`;
 
       // Nested branch
       html += `<div class="mt-8"><div class="toggle-row"><label>Nested Branch</label>
@@ -609,7 +666,7 @@ function renderBranch(node, prefix, depth) {
       }
       html += `</div>`;
 
-      html += `</div>`;
+      html += `</div>`; // close choice-block
     });
   }
 
@@ -643,7 +700,12 @@ function renderConditionBuilder(cond, prefix) {
     cond.and.forEach((sub, i) => {
       html += renderConditionBuilder(sub, `${prefix}_and_${i}`);
     });
-    html += `<button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="and">+ Add</button>`;
+    html += `<div class="condition-row">
+      <button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="and" data-subtype="stat">+ Stat</button>
+      <button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="and" data-subtype="chose">+ Chose</button>
+      <button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="and" data-subtype="visits">+ Visits</button>
+      <button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="and" data-subtype="day">+ Day</button>
+    </div>`;
     html += `</div>`;
   } else if (cond.or) {
     html += `<div class="condition-row"><strong>OR</strong>
@@ -652,7 +714,12 @@ function renderConditionBuilder(cond, prefix) {
     cond.or.forEach((sub, i) => {
       html += renderConditionBuilder(sub, `${prefix}_or_${i}`);
     });
-    html += `<button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="or">+ Add</button>`;
+    html += `<div class="condition-row">
+      <button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="or" data-subtype="stat">+ Stat</button>
+      <button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="or" data-subtype="chose">+ Chose</button>
+      <button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="or" data-subtype="visits">+ Visits</button>
+      <button class="btn btn-small btn-success" data-add-sub-condition="${prefix}" data-combinator="or" data-subtype="day">+ Day</button>
+    </div>`;
     html += `</div>`;
   } else if (cond.not) {
     html += `<div class="condition-row"><strong>NOT</strong>
@@ -840,7 +907,10 @@ function bindAllEditorInputs(npcName) {
     };
     el.addEventListener("change", handler);
     if (el.tagName === "TEXTAREA" || el.type === "text") {
-      el.addEventListener("input", handler);
+      // Don't fire on input for key renames — only on change (blur/enter)
+      if (!el.dataset.bind.endsWith(".key")) {
+        el.addEventListener("input", handler);
+      }
     }
   });
 
@@ -1113,7 +1183,8 @@ function bindAllEditorInputs(npcName) {
     btn.addEventListener("click", () => {
       const prefix = btn.dataset.addSubCondition;
       const combinator = btn.dataset.combinator;
-      addSubCondition(prefix, combinator);
+      const subtype = btn.dataset.subtype || "stat";
+      addSubCondition(prefix, combinator, subtype);
       renderNpcPanel(npcName);
     });
   });
@@ -1212,6 +1283,10 @@ function getNextChoiceKey(existingKeys) {
 
 // ─── Choice Key Rename ───
 function handleChoiceKeyRename(bindPath, newKey) {
+  // Sanitize: only allow alphanumeric and underscores
+  newKey = newKey.replace(/[^a-zA-Z0-9_]/g, "");
+  if (!newKey) return;
+
   // bindPath like "npc.choice_A.key" or "var_0.choice_B.key"
   const parts = bindPath.split(".");
   const choicePart = parts[parts.length - 2]; // "choice_A"
@@ -1250,33 +1325,67 @@ function setConditionValue(bindPath, val) {
 }
 
 function parseConditionBindPath(bindPath) {
-  // Condition binds look like: "var_0_if.stat", "var_0_if.op", "var_0_if.value"
-  // or "npc.choice_A_if.stat", "var_0.choice_A_if.chose.npc"
-  // We need to find the condition object and the key within it
-
   const npc = gameData.npcs[activeNpc];
   if (!npc) return null;
 
-  // Split on the _if boundary
+  // Split on the first "_if." boundary
   const ifIdx = bindPath.indexOf("_if.");
   if (ifIdx === -1) return null;
 
   const ownerPrefix = bindPath.substring(0, ifIdx);
   const condPath = bindPath.substring(ifIdx + 4); // after "_if."
 
-  // Get the owner object
   let owner = getConditionOwner(ownerPrefix);
-  if (!owner) return null;
+  if (!owner || !owner.if) return null;
 
   let cond = owner.if;
-  if (!cond) return null;
 
-  // Navigate the condition path
-  const parts = condPath.split(".");
+  // Walk into nested combinator segments like "and_0.", "or_1.", "not."
+  let remaining = condPath;
+
+  while (true) {
+    let andMatch = remaining.match(/^and_(\d+)\.(.+)$/);
+    if (andMatch) {
+      if (!cond.and) return null;
+      cond = cond.and[parseInt(andMatch[1])];
+      if (!cond) return null;
+      remaining = andMatch[2];
+      continue;
+    }
+
+    let orMatch = remaining.match(/^or_(\d+)\.(.+)$/);
+    if (orMatch) {
+      if (!cond.or) return null;
+      cond = cond.or[parseInt(orMatch[1])];
+      if (!cond) return null;
+      remaining = orMatch[2];
+      continue;
+    }
+
+    let notMatch = remaining.match(/^not\.(.+)$/);
+    if (notMatch) {
+      if (!cond.not) return null;
+      cond = cond.not;
+      remaining = notMatch[2];
+      continue;
+    }
+
+    break;
+  }
+
+  // Now `remaining` is a simple dot-path like "stat", "op", "value", "chose.npc", "visits.op", etc.
+  const parts = remaining.split(".");
   let current = cond;
   for (let i = 0; i < parts.length - 1; i++) {
+    if (current[parts[i]] === undefined || current[parts[i]] === null) {
+      // Auto-upgrade visits/day shorthand integer to object form
+      if ((parts[i] === "visits" || parts[i] === "day") && typeof current[parts[i]] !== "object") {
+        current[parts[i]] = { op: "==", value: current[parts[i]] || 0 };
+      } else {
+        return null;
+      }
+    }
     current = current[parts[i]];
-    if (!current) return null;
   }
 
   return { parent: current, key: parts[parts.length - 1] };
@@ -1396,13 +1505,30 @@ function clearCondition(prefix) {
   if (owner) delete owner.if;
 }
 
-function addSubCondition(prefix, combinator) {
+function addSubCondition(prefix, combinator, subtype) {
   const owner = getConditionOwner(prefix.replace(/_if$/, ""));
   if (!owner || !owner.if) return;
 
+  let newCond;
+  switch (subtype) {
+    case "chose":
+      newCond = { chose: { npc: "", choice: "A" } };
+      break;
+    case "visits":
+      newCond = { visits: { op: "==", value: 0 } };
+      break;
+    case "day":
+      newCond = { day: { op: "==", value: 1 } };
+      break;
+    case "stat":
+    default:
+      newCond = { stat: "power", op: ">=", value: 30 };
+      break;
+  }
+
   if (combinator === "and" && owner.if.and) {
-    owner.if.and.push({ stat: "power", op: ">=", value: 30 });
+    owner.if.and.push(newCond);
   } else if (combinator === "or" && owner.if.or) {
-    owner.if.or.push({ stat: "power", op: ">=", value: 30 });
+    owner.if.or.push(newCond);
   }
 }
