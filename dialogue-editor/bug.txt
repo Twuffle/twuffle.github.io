@@ -1,0 +1,5 @@
+Variant conditions don't save when using the editor and reset all the time
+And conditions in the editor don't ask for choice variables
+Changing Names of variables is tedious cause every time I add a character it jumps back to the top of the page and deselects the text box
+I can't undo when I accidentally put something in quotation marks in the name of the variable. I also can't rename the variable
+Can't put conditions on branches
